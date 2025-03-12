@@ -91,6 +91,10 @@ class BrowserUseTool(BaseTool):
     context: Optional[BrowserContext] = Field(default=None, exclude=True)
     dom_service: Optional[DomService] = Field(default=None, exclude=True)
 
+    # Add a flag to track if we're in mock mode
+    mock_mode: bool = Field(default=False, exclude=True)
+    mock_reason: str = Field(default="", exclude=True)
+
     @field_validator("parameters", mode="before")
     def validate_parameters(cls, v: dict, info: ValidationInfo) -> dict:
         if not v:
@@ -99,12 +103,51 @@ class BrowserUseTool(BaseTool):
 
     async def _ensure_browser_initialized(self) -> BrowserContext:
         """Ensure browser and context are initialized."""
-        if self.browser is None:
-            self.browser = BrowserUseBrowser(BrowserConfig(headless=False))
-        if self.context is None:
-            self.context = await self.browser.new_context()
-            self.dom_service = DomService(await self.context.get_current_page())
-        return self.context
+        # If already in mock mode, don't try to initialize real browser
+        if self.mock_mode:
+            raise RuntimeError(f"Browser in mock mode: {self.mock_reason}")
+            
+        try:
+            if self.browser is None:
+                try:
+                    self.browser = BrowserUseBrowser(BrowserConfig(headless=False))
+                except NotImplementedError:
+                    # Handle the NotImplementedError from asyncio subprocess
+                    self.mock_mode = True
+                    self.mock_reason = "Python asyncio subprocess not supported in this environment (common with Python 3.12+ on Windows)"
+                    raise RuntimeError(
+                        "Browser initialization failed: Python asyncio subprocess not supported in this environment. "
+                        "This commonly happens in Python 3.12+ on Windows. Try using Python 3.11 or earlier."
+                    )
+                except Exception as e:
+                    # Handle any other initialization errors
+                    self.mock_mode = True
+                    self.mock_reason = f"Browser initialization error: {str(e)}"
+                    raise RuntimeError(f"Browser initialization failed: {str(e)}")
+                    
+            if self.context is None:
+                try:
+                    self.context = await self.browser.new_context()
+                    self.dom_service = DomService(await self.context.get_current_page())
+                except Exception as e:
+                    # Handle context initialization errors
+                    self.mock_mode = True
+                    self.mock_reason = f"Browser context initialization error: {str(e)}"
+                    if self.browser:
+                        try:
+                            await self.browser.close()
+                        except:
+                            pass
+                    self.browser = None
+                    raise RuntimeError(f"Browser context initialization failed: {str(e)}")
+                    
+            return self.context
+        except Exception as e:
+            # If any error occurs during initialization, switch to mock mode
+            self.mock_mode = True
+            if not self.mock_reason:
+                self.mock_reason = f"Unexpected error: {str(e)}"
+            raise
 
     async def execute(
         self,
@@ -133,10 +176,21 @@ class BrowserUseTool(BaseTool):
         Returns:
             ToolResult with the action's output or error
         """
-        async with self.lock:
-            try:
-                context = await self._ensure_browser_initialized()
-
+        try:
+            async with self.lock:
+                # Normalize the action name (handle aliases)
+                action = action.lower().strip()
+                if action == "get_content":
+                    action = "get_html"  # Map get_content to get_html
+                
+                try:
+                    # Try to initialize the browser
+                    context = await self._ensure_browser_initialized()
+                except Exception as e:
+                    # If initialization fails, use mock mode
+                    return self._handle_mock_action(action, url, index, text, script, scroll_amount, tab_id, **kwargs)
+                
+                # Continue with normal browser actions...
                 if action == "navigate":
                     if not url:
                         return ToolResult(error="URL is required for 'navigate' action")
@@ -226,8 +280,93 @@ class BrowserUseTool(BaseTool):
                 else:
                     return ToolResult(error=f"Unknown action: {action}")
 
-            except Exception as e:
-                return ToolResult(error=f"Browser action '{action}' failed: {str(e)}")
+        except Exception as e:
+            # If any error occurs during execution, switch to mock mode for next time
+            self.mock_mode = True
+            if not self.mock_reason:
+                self.mock_reason = f"Browser action error: {str(e)}"
+            return ToolResult(error=f"Browser action '{action}' failed: {str(e)}. Using simulated browser mode for future requests.")
+
+    def _handle_mock_action(
+        self,
+        action: str,
+        url: Optional[str] = None,
+        index: Optional[int] = None,
+        text: Optional[str] = None,
+        script: Optional[str] = None,
+        scroll_amount: Optional[int] = None,
+        tab_id: Optional[int] = None,
+        **kwargs,
+    ) -> ToolResult:
+        """Handle browser actions in mock mode when actual browser can't be initialized."""
+        self.mock_mode = True  # Ensure we're in mock mode
+        
+        # Provide sensible simulated responses for supported actions
+        if action == "navigate":
+            if not url:
+                return ToolResult(error="URL is required for 'navigate' action")
+                
+            # Extract the domain from the URL for inclusion in the response
+            import re
+            domain = re.search(r'https?://([^/]+)', url)
+            domain_text = domain.group(1) if domain else "the website"
+            
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Navigation to: {url}\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}\n\n"
+                       f"Would have navigated to {domain_text}. To view actual content from this URL, please:\n"
+                       f"1. Use the google_search tool to find information about this site\n"
+                       f"2. Try running this application with Python 3.11 instead of 3.12+\n"
+                       f"3. Or try running on Linux/macOS where asyncio works better with Playwright"
+            )
+            
+        elif action == "get_html":
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Would get HTML content from the current page.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}\n\n"
+                       f"To view actual web content, please try using the google_search tool instead."
+            )
+            
+        elif action == "screenshot":
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Would capture a screenshot of the current page.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}\n\n"
+                       f"Screenshots are not available in simulation mode."
+            )
+            
+        elif action == "click":
+            if index is None:
+                return ToolResult(error="Index is required for 'click' action")
+                
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Would click element at index {index}.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}"
+            )
+            
+        elif action == "input_text":
+            if index is None or not text:
+                return ToolResult(error="Index and text are required for 'input_text' action")
+                
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Would input '{text}' into element at index {index}.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}"
+            )
+            
+        elif action == "execute_js":
+            if not script:
+                return ToolResult(error="Script is required for 'execute_js' action")
+                
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] Would execute JavaScript: '{script[:50]}...'.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}"
+            )
+            
+        else:
+            return ToolResult(
+                output=f"[SIMULATED BROWSING] The '{action}' action is not available in simulation mode.\n\n"
+                       f"The browser tool is running in simulation mode due to: {self.mock_reason}\n\n"
+                       f"Please try using the google_search tool as an alternative."
+            )
 
     async def get_current_state(self) -> ToolResult:
         """Get the current browser state as a ToolResult."""

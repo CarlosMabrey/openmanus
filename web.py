@@ -1,3 +1,7 @@
+# Import compatibility layer for Python version differences
+# This MUST be imported before any other modules to apply patches
+import app.compat
+
 import datetime
 import json
 import base64

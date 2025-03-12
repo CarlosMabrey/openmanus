@@ -291,6 +291,13 @@ function connectToEventStream(taskId, typingIndicator) {
             // Safely parse the event data
             let data;
             try {
+                // First check if this is a heartbeat message
+                if (typeof e.data === 'string' && e.data.trim().startsWith(': heartbeat')) {
+                    // This is a heartbeat message, no need to process it
+                    console.log('Received heartbeat');
+                    return;
+                }
+                
                 // First check if e.data exists and is a string
                 if (typeof e.data !== 'string') {
                     console.warn('Event data is not a string:', e.data);
@@ -373,84 +380,155 @@ function connectToEventStream(taskId, typingIndicator) {
  * Process a message from the event stream
  */
 function processStreamMessage(data, currentAgentMessage) {
+    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    console.log('Stream message:', parsedData);
+    
+    // Extract message properties
+    const msgType = parsedData.type || 'log';
+    const content = parsedData.content || '';
+    
+    // Special handling for error messages
+    if (msgType === 'error') {
+        // Show a more prominent error message
+        const errorBox = document.createElement('div');
+        errorBox.className = 'error-message my-4 p-4 border-l-4 border-red-500 bg-red-50 rounded';
+        
+        let errorContent = `<p class="text-red-700 font-medium">${content}</p>`;
+        
+        // Add details if available
+        if (parsedData.details) {
+            console.error('Error details:', parsedData.details);
+            
+            if (typeof parsedData.details === 'string') {
+                errorContent += `<p class="text-red-600 mt-2 text-sm">${parsedData.details}</p>`;
+            } else if (typeof parsedData.details === 'object') {
+                // Format object details
+                errorContent += '<div class="mt-3 bg-red-100 p-3 rounded text-sm">';
+                
+                if (parsedData.details.error_type) {
+                    errorContent += `<p><strong>Error Type:</strong> ${parsedData.details.error_type}</p>`;
+                }
+                
+                if (parsedData.details.message) {
+                    errorContent += `<p><strong>Message:</strong> ${parsedData.details.message}</p>`;
+                }
+                
+                if (parsedData.details.traceback && Array.isArray(parsedData.details.traceback)) {
+                    errorContent += '<p><strong>Traceback:</strong></p>';
+                    errorContent += '<pre class="bg-red-50 p-2 rounded overflow-x-auto">';
+                    parsedData.details.traceback.forEach(line => {
+                        errorContent += line + '\n';
+                    });
+                    errorContent += '</pre>';
+                }
+                
+                errorContent += '</div>';
+            }
+        }
+        
+        // Add suggestion for common errors
+        if (content.includes('API key')) {
+            errorContent += `
+                <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p class="font-medium text-yellow-700">Suggestion:</p>
+                    <p class="text-sm">Check that you've entered a valid API key for the selected model. You can get an API key from the provider's website.</p>
+                </div>
+            `;
+        }
+        
+        errorBox.innerHTML = errorContent;
+        elements.conversation.appendChild(errorBox);
+        scrollToBottom();
+        
+        return currentAgentMessage;
+    }
+    
     // Skip heartbeat messages
-    if (!data.content) return;
+    if (!content) return;
     
     // Ensure content is properly formatted
-    let content = data.content;
+    let formattedContent = content;
     // If content is an object, keep it as is for specific message types that expect objects
-    if (typeof content === 'object' && !Array.isArray(content) && content !== null) {
-        if (data.type !== 'browser_screenshot' && data.type !== 'browser_navigation') {
+    if (typeof formattedContent === 'object' && !Array.isArray(formattedContent) && formattedContent !== null) {
+        if (msgType !== 'browser_screenshot' && msgType !== 'browser_navigation') {
             // For message types that expect strings, convert objects to strings
-            content = JSON.stringify(content);
+            formattedContent = JSON.stringify(formattedContent);
         }
-    } else if (typeof content !== 'string') {
+    } else if (typeof formattedContent !== 'string') {
         // Convert non-string, non-object content to string
-        content = String(content);
+        formattedContent = String(formattedContent);
     }
     
-    const messageType = data.type || 'log';
+    // Log all messages to console for debugging
+    console.log('Stream message:', formattedContent);
     
-    // Track displayed steps to avoid redundancy
-    if (!window.displayedSteps) {
-        window.displayedSteps = new Set();
+    // Special handling for success messages that might contain detailed results
+    if (msgType === 'success' && parsedData.result) {
+        handleSuccessWithResult(parsedData.result);
+        updateUIForExecution(false);
+        isExecuting = false;
+        return;
     }
     
-    // Create a unique message identifier if the message has a step
-    let messageId = null;
-    if (data.step) {
-        messageId = `${messageType}-${data.step}`;
-        // Skip if we've already displayed this exact step/type combination
-        if (window.displayedSteps.has(messageId)) {
-            return;
-        }
-        window.displayedSteps.add(messageId);
+    // Track displayed questions to avoid duplicates
+    if (!window.displayedQuestions) {
+        window.displayedQuestions = new Set();
     }
+    
+    // Create a hash/id for the message based on content and type
+    const messageHash = `${msgType}-${formattedContent.substring(0, 100)}`;
     
     // Handle different message types
-    switch (messageType) {
+    switch (msgType) {
         case 'question':
-            addAgentQuestion(content);
+            // Check if this question has already been displayed
+            if (!window.displayedQuestions.has(messageHash)) {
+                addAgentQuestion(formattedContent);
+                window.displayedQuestions.add(messageHash);
+            } else {
+                console.log('Skipping duplicate question:', formattedContent.substring(0, 100));
+            }
             break;
             
         case 'success':
             // Final response from the agent
-            displayFinalResponse(content);
+            displayFinalResponse(formattedContent);
             updateUIForExecution(false);
             isExecuting = false;
             break;
             
         case 'error':
-            showSystemMessage(content, "error");
+            showSystemMessage(formattedContent, "error");
             updateUIForExecution(false);
             isExecuting = false;
             break;
             
         case 'reasoning':
-            addReasoningMessage(content);
+            addReasoningMessage(formattedContent);
             break;
             
         case 'tool':
-            addToolUsageMessage(content);
+        case 'tool_usage':
+            addToolUsageMessage(formattedContent);
             break;
             
         case 'tool_result':
-            addToolResultMessage(content);
+            addToolResultMessage(formattedContent);
             break;
             
         case 'browser_screenshot':
-            handleBrowserScreenshot(content);
+            handleBrowserScreenshot(formattedContent);
             break;
             
         case 'browser_navigation':
-            addWebBrowsingMessage(content);
+            addWebBrowsingMessage(formattedContent);
             break;
             
         case 'status':
-            showSystemMessage(content, "info");
+            showSystemMessage(formattedContent, "info");
             
-            if (content.includes("Maximum steps reached") || 
-                content.includes("Task completed successfully")) {
+            if (formattedContent.includes("Maximum steps reached") || 
+                formattedContent.includes("Task completed successfully")) {
                 updateUIForExecution(false);
                 isExecuting = false;
             }
@@ -458,27 +536,195 @@ function processStreamMessage(data, currentAgentMessage) {
             
         case 'summary':
             // Display the summary in a collapsible section
-            showStructuredSummary(content);
+            showStructuredSummary(formattedContent);
             break;
             
         case 'info':
-            // Only show important info messages
-            if (content.includes("Connected") || 
-                content.includes("completed") || 
-                content.includes("paused") || 
-                content.includes("resumed")) {
-                showSystemMessage(content, "info");
-            }
+            // Make info messages more visible - show all of them
+            showSystemMessage(formattedContent, "info");
+            break;
+            
+        case 'log':
+            // Display all log messages to improve visibility of agent steps
+            showLogMessage(formattedContent);
             break;
             
         default:
-            // For other log messages, only show if they seem important
-            if (content.includes("Error") || 
-                content.includes("Warning") || 
-                content.includes("Failed")) {
-                showSystemMessage(content, "warning");
-            }
+            // For other log messages, show most of them for better visibility
+            showSystemMessage(formattedContent, "info");
     }
+}
+
+/**
+ * Handle a success message that contains detailed result information
+ */
+function handleSuccessWithResult(result) {
+    // Check if result contains structured data
+    if (typeof result === 'string') {
+        try {
+            result = JSON.parse(result);
+        } catch (e) {
+            // If parsing fails, just display as final response
+            displayFinalResponse(result);
+            return;
+        }
+    }
+    
+    // Add debug info to console
+    console.log('Success result:', result);
+    
+    // Check if result has summary, details, and conversation fields
+    if (result && result.details && Array.isArray(result.details)) {
+        // Display a heading to show we're presenting the agent's steps
+        const stepsHeading = document.createElement('div');
+        stepsHeading.className = 'py-2 px-3 my-3 bg-accent-blue bg-opacity-10 text-center rounded-lg font-semibold';
+        stepsHeading.textContent = 'Agent Steps & Reasoning';
+        elements.conversation.appendChild(stepsHeading);
+        
+        // Display each step in the details array
+        result.details.forEach((step, index) => {
+            // Skip empty steps
+            if (!step || typeof step !== 'object') {
+                return;
+            }
+            
+            const stepType = step.type || 'step';
+            let stepContent = step.content || JSON.stringify(step);
+            
+            // Ensure stepContent is a string
+            if (typeof stepContent !== 'string') {
+                stepContent = JSON.stringify(stepContent);
+            }
+            
+            // Add a step number prefix for better readability
+            const stepNumberPrefix = `Step ${index + 1}: `;
+            console.log(`Processing ${stepNumberPrefix}${stepType}`);
+            
+            switch (stepType) {
+                case 'reasoning':
+                    addReasoningMessage(stepNumberPrefix + stepContent);
+                    break;
+                case 'tool_usage':
+                case 'tool':
+                    addToolUsageMessage(stepNumberPrefix + stepContent);
+                    break;
+                case 'tool_result':
+                    addToolResultMessage(stepNumberPrefix + stepContent);
+                    break;
+                case 'question':
+                    // Check if this question has already been displayed
+                    const questionHash = `question-${stepContent.substring(0, 100)}`;
+                    if (!window.displayedQuestions) {
+                        window.displayedQuestions = new Set();
+                    }
+                    
+                    if (!window.displayedQuestions.has(questionHash)) {
+                        addAgentQuestion(stepNumberPrefix + stepContent);
+                        window.displayedQuestions.add(questionHash);
+                    } else {
+                        console.log('Skipping duplicate question in results:', stepContent.substring(0, 100));
+                    }
+                    break;
+                case 'browser_navigation':
+                    addWebBrowsingMessage(stepContent);
+                    break;
+                case 'log':
+                    showLogMessage(stepNumberPrefix + stepContent);
+                    break;
+                case 'final_response':
+                    // For the final response, display it without step number
+                    displayFinalResponse(stepContent);
+                    break;
+                case 'error':
+                    showSystemMessage(stepNumberPrefix + stepContent, "error");
+                    break;
+                default:
+                    // For any unhandled step types, show them as log messages
+                    showLogMessage(`${stepNumberPrefix}[${stepType}] ${stepContent}`);
+            }
+        });
+        
+        // Finally, show the summary result
+        if (result.summary && Array.isArray(result.summary) && result.summary.length > 0) {
+            const summaryHtml = `
+                <h3 class="font-medium text-lg mb-2">Summary of Actions</h3>
+                <ul class="list-disc list-inside space-y-1 pl-4">
+                    ${result.summary.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+            `;
+            
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'p-3 my-3 bg-apple-50 rounded-lg border border-apple-200';
+            summaryDiv.innerHTML = summaryHtml;
+            elements.conversation.appendChild(summaryDiv);
+        }
+    } else {
+        // If there are no structured details, just show the final response
+        const finalContent = typeof result === 'string' ? result : 
+                           (result.content || JSON.stringify(result));
+        displayFinalResponse(finalContent);
+    }
+}
+
+/**
+ * Display a log message
+ */
+function showLogMessage(content) {
+    // Skip empty messages
+    if (!content || content.trim() === '') {
+        return;
+    }
+    
+    // Create a more visible log message element
+    const logElement = document.createElement('div');
+    logElement.className = 'p-3 my-2 rounded-lg bg-apple-50 border border-apple-100 text-sm';
+    
+    // Format the log message content
+    let formattedContent = content;
+    
+    // Check if this is a step log
+    if (content.includes('Step ') && (content.includes('Thinking about') || content.includes('Using tool'))) {
+        logElement.className = 'p-3 my-2 rounded-lg bg-apple-100 border border-apple-200 text-sm font-medium';
+    }
+    
+    // Format tool execution logs
+    if (content.includes('Executing tool')) {
+        logElement.className = 'p-3 my-2 rounded-lg bg-accent-blue bg-opacity-10 border border-accent-blue border-opacity-20 text-sm';
+        
+        // Add an icon for tool execution
+        formattedContent = `
+            <div class="flex items-center">
+                <svg class="w-4 h-4 mr-2 text-accent-blue" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>${formattedContent}</span>
+            </div>
+        `;
+    }
+    
+    // Format reasoning logs
+    if (content.includes('Reasoning:') || content.includes('Planning:')) {
+        logElement.className = 'p-3 my-2 rounded-lg bg-accent-green bg-opacity-10 border border-accent-green border-opacity-20 text-sm';
+        
+        // Add an icon for reasoning
+        formattedContent = `
+            <div class="flex items-center">
+                <svg class="w-4 h-4 mr-2 text-accent-green" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 3V4m6-1v1M9 20v1m6-1v1M4 9H3m1 6H3m18-6h-1m1 6h-1m-2-8a6 6 0 00-12 0c0 5 7 8 8 11h4s-2-2-2-4a6 6 0 002-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>${formattedContent}</span>
+            </div>
+        `;
+    }
+    
+    // Set the HTML content
+    logElement.innerHTML = formattedContent;
+    
+    // Add to the conversation
+    elements.conversation.appendChild(logElement);
+    
+    // Scroll to bottom
+    scrollToBottom();
 }
 
 /**
@@ -521,7 +767,26 @@ function displayFinalResponse(content) {
     
     // Add event listeners for the buttons
     document.getElementById('clear-conversation').addEventListener('click', clearConversation);
-    document.getElementById('export-conversation').addEventListener('click', exportConversationToPdf);
+    
+    // Ensure the export conversation button has the correct event listener
+    const exportButton = document.getElementById('export-conversation');
+    if (exportButton) {
+        exportButton.addEventListener('click', function() {
+            // Show export options dropdown or directly export to PDF
+            if (elements.exportOptions) {
+                // Position the options dropdown
+                const rect = exportButton.getBoundingClientRect();
+                elements.exportOptions.style.top = `${rect.bottom}px`;
+                elements.exportOptions.style.right = `${window.innerWidth - rect.right}px`;
+                
+                // Show the options
+                elements.exportOptions.classList.remove('hidden');
+            } else {
+                // Fallback to direct PDF export
+                exportConversationToPdf();
+            }
+        });
+    }
 }
 
 /**
@@ -995,597 +1260,132 @@ function formatContent(content) {
 }
 
 /**
- * Add an agent question to the conversation with a response input
+ * Add an agent question to the conversation
  */
 function addAgentQuestion(content) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message-bubble agent-message';
-    
-    // Create a unique ID for this question
+    // Generate a unique ID for this question
     const questionId = 'question-' + Date.now();
     
-    // Format the message with a response input
-    messageDiv.innerHTML = `
-        <div>${formatContent(content)}</div>
-        <div class="mt-3 pt-3 border-t border-apple-200">
-            <div class="flex flex-col">
-                <div class="text-accent-blue text-sm mb-2">
-                    <svg class="w-4 h-4 inline-block mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8 12H8.01M12 12H12.01M16 12H16.01M21 12C21 16.418 16.97 20 12 20C10.5286 20 9.14629 19.6635 7.94358 19.079L3 20L4.2528 15.7448C3.46091 14.5345 3 13.1612 3 12C3 7.58172 7.02944 4 12 4C16.97 4 21 7.58172 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                    Waiting for your response...
+    // Create the question container
+    const questionDiv = document.createElement('div');
+    questionDiv.className = 'agent-question p-4 my-3 rounded-lg';
+    questionDiv.id = questionId;
+    
+    // Create the question content
+    questionDiv.innerHTML = `
+        <div class="flex items-start">
+            <div class="flex-shrink-0 mr-2">
+                <svg class="w-5 h-5 text-accent-purple" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8.22766 9C8.77678 7.83481 10.2584 7 12.0001 7C14.2092 7 16.0001 8.34315 16.0001 10C16.0001 11.3994 14.7224 12.5751 12.9943 12.9066C12.4519 13.0106 12.0001 13.4477 12.0001 14M12 17H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <div class="font-medium mb-2">I have a question:</div>
+                <div>${formatContent(content)}</div>
+                
+                <div class="mt-4 mb-2">
+                    <label for="response-${questionId}" class="block text-sm font-medium text-apple-600 mb-1">
+                        Your Response:
+                    </label>
+                    <textarea 
+                        id="response-${questionId}" 
+                        rows="3" 
+                        class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition resize-none"
+                        placeholder="Type your response here..."
+                    ></textarea>
                 </div>
-                <div class="flex items-center">
-                    <input type="text" id="${questionId}-input" class="flex-1 px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition" placeholder="Type your response...">
-                    <button id="${questionId}-submit" class="ml-2 px-3 py-2 bg-accent-blue text-white rounded-lg hover:bg-blue-700 transition">
-                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                
+                <div>
+                    <button 
+                        id="submit-${questionId}" 
+                        class="px-4 py-2 bg-accent-purple text-white rounded-lg hover:bg-purple-600 transition flex items-center"
+                        onclick="handleUserResponseSubmit('${questionId}')"
+                    >
+                        <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
+                        Submit Response
                     </button>
                 </div>
             </div>
         </div>
     `;
     
-    elements.conversation.appendChild(messageDiv);
+    // Add to the conversation
+    elements.conversation.appendChild(questionDiv);
     
-    // Initialize syntax highlighting
-    if (typeof Prism !== 'undefined') {
-        Prism.highlightAllUnder(messageDiv);
-    }
+    // Focus the textarea
+    setTimeout(() => {
+        const textarea = document.getElementById(`response-${questionId}`);
+        if (textarea) {
+            textarea.focus();
+        }
+    }, 100);
     
+    // Scroll to the question
     scrollToBottom();
     
-    // Show a system message indicating execution is paused
-    showSystemMessage("Execution paused. Waiting for your response...", "info");
-    
-    // Pause execution until user responds
-    pauseExecution();
-    
-    // Add event listener for the submit button
-    document.getElementById(`${questionId}-submit`).addEventListener('click', () => {
-        handleUserResponse(questionId);
-    });
-    
-    // Add event listener for Enter key
-    document.getElementById(`${questionId}-input`).addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            handleUserResponse(questionId);
-        }
-    });
-    
-    // Focus the input field
-    document.getElementById(`${questionId}-input`).focus();
+    return questionId;
 }
 
 /**
- * Handle user response to a question
+ * Handle the submission of a user response to an agent question
  */
-async function handleUserResponse(questionId) {
-    const inputElement = document.getElementById(`${questionId}-input`);
-    const submitButton = document.getElementById(`${questionId}-submit`);
+async function handleUserResponseSubmit(questionId) {
+    // Get the input field for this question
+    const inputField = document.getElementById(`response-${questionId}`);
+    if (!inputField) return;
     
-    // Get the user's response
-    const response = inputElement.value.trim();
-    
+    // Get the response text
+    const response = inputField.value.trim();
     if (!response) {
-        return; // Don't submit empty responses
-    }
-    
-    // Disable the input and button
-    inputElement.disabled = true;
-    submitButton.disabled = true;
-    submitButton.classList.add('opacity-50');
-    
-    // Add the user's response to the conversation
-    addUserMessage(response);
-    
-    // Remove the input field and button
-    const questionDiv = inputElement.closest('.message-bubble');
-    const inputContainer = inputElement.parentElement.parentElement;
-    questionDiv.removeChild(inputContainer);
-    
-    // Show a system message indicating execution is resuming
-    showSystemMessage("Resuming execution with your response...", "success");
-    
-    // Create a new typing indicator to show the agent is thinking
-    const typingIndicator = createTypingIndicator();
-    elements.conversation.appendChild(typingIndicator);
-    scrollToBottom();
-    
-    // Resume execution with the user's response
-    await resumeExecution(response);
-}
-
-/**
- * Pause execution while waiting for user response
- */
-function pauseExecution() {
-    // Send a message to the server to pause execution
-    if (currentTaskId) {
-        fetch(`/pause/${currentTaskId}`, { method: 'POST' })
-            .catch(error => {
-                console.error('Error pausing execution:', error);
-            });
-    }
-}
-
-/**
- * Resume execution with the user's response
- */
-async function resumeExecution(response) {
-    // Send the user's response to the server
-    if (currentTaskId) {
-        try {
-            await fetch(`/resume/${currentTaskId}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ response })
-            });
-        } catch (error) {
-            console.error('Error resuming execution:', error);
-            showSystemMessage('Failed to send your response to the agent', "error");
-        }
-    }
-}
-
-/**
- * Export the conversation to a PDF file
- */
-function exportConversationToPdf() {
-    // Check if there's content to export
-    if (elements.conversation.children.length <= 1) {
-        showSystemMessage("No conversation to export", "warning");
+        showSystemMessage("Please enter a response", "warning");
         return;
     }
     
-    // Create a clone of the conversation element for PDF export
-    const conversationClone = elements.conversation.cloneNode(true);
-    
-    // Remove any input fields or buttons from the clone
-    const inputFields = conversationClone.querySelectorAll('input, button');
-    inputFields.forEach(field => field.remove());
-    
-    // Create a container for the PDF content
-    const container = document.createElement('div');
-    container.className = 'pdf-container';
-    container.style.padding = '20px';
-    container.style.fontFamily = 'Arial, sans-serif';
-    
-    // Add a title
-    const title = document.createElement('h1');
-    title.textContent = 'OpenManus Conversation';
-    title.style.textAlign = 'center';
-    title.style.marginBottom = '20px';
-    title.style.fontSize = '24px';
-    title.style.fontWeight = 'bold';
-    container.appendChild(title);
-    
-    // Add a timestamp
-    const timestamp = document.createElement('p');
-    const currentDate = new Date();
-    timestamp.textContent = `Generated on ${currentDate.toLocaleString()}`;
-    timestamp.style.textAlign = 'center';
-    timestamp.style.marginBottom = '30px';
-    timestamp.style.color = '#666';
-    container.appendChild(timestamp);
-    
-    // Add the conversation content
-    container.appendChild(conversationClone);
-    
-    // Add a footer
-    const footer = document.createElement('p');
-    footer.textContent = 'OpenManus © 2023-2024 | An open-source AI agent platform';
-    footer.style.textAlign = 'center';
-    footer.style.marginTop = '30px';
-    footer.style.color = '#666';
-    footer.style.borderTop = '1px solid #eee';
-    footer.style.paddingTop = '10px';
-    container.appendChild(footer);
-    
-    // Configure PDF options
-    const opt = {
-        margin: [10, 10],
-        filename: `openmanus-conversation-${formatDateForFilename(currentDate)}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    
-    // Generate the PDF
-    showSystemMessage("Generating PDF...", "info");
-    
-    // Use html2pdf to generate and download the PDF
-    html2pdf().from(container).set(opt).save()
-        .then(() => {
-            showSystemMessage("PDF generated successfully", "success");
-        })
-        .catch(error => {
-            console.error('Error generating PDF:', error);
-            showSystemMessage("Error generating PDF", "error");
+    try {
+        // Show the user's response in the conversation
+        addUserMessage(response);
+        
+        // Disable the input field and button
+        inputField.disabled = true;
+        const submitButton = document.getElementById(`submit-${questionId}`);
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = "Submitted";
+        }
+        
+        // Send the response to the server
+        if (!currentTaskId) {
+            showSystemMessage("No active task to respond to", "error");
+            return;
+        }
+        
+        // Make the API call to submit the response
+        const response_data = await fetch(`/user_response/${currentTaskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                response: response
+            })
         });
-}
-
-/**
- * Export the conversation to a Markdown file
- */
-function exportConversationToMarkdown() {
-    // Check if there's content to export
-    if (elements.conversation.children.length <= 1) {
-        showSystemMessage("No conversation to export", "warning");
-        return;
-    }
-    
-    // Create markdown content
-    let markdown = "# OpenManus Conversation\n\n";
-    
-    // Add timestamp
-    const currentDate = new Date();
-    markdown += `*Generated on ${currentDate.toLocaleString()}*\n\n`;
-    
-    // Process conversation elements
-    const conversationElements = elements.conversation.children;
-    for (let i = 0; i < conversationElements.length; i++) {
-        const element = conversationElements[i];
         
-        // Skip system messages and typing indicators
-        if (element.classList.contains('typing-indicator') || 
-            (element.classList.contains('py-2') && element.classList.contains('px-3'))) {
-            continue;
+        if (!response_data.ok) {
+            const errorData = await response_data.json();
+            throw new Error(errorData.detail || 'Failed to submit response');
         }
         
-        // Process based on message type
-        if (element.classList.contains('user-message')) {
-            markdown += `## User\n\n${htmlToMarkdown(element.innerHTML)}\n\n`;
-        } else if (element.classList.contains('agent-message')) {
-            markdown += `## OpenManus\n\n${htmlToMarkdown(element.innerHTML)}\n\n`;
-        } else if (element.classList.contains('web-browsing')) {
-            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Web Browsing';
-            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
-            markdown += `## ${title}\n\n${htmlToMarkdown(content)}\n\n`;
-        } else if (element.classList.contains('reasoning')) {
-            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Reasoning';
-            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
-            markdown += `## ${title}\n\n${htmlToMarkdown(content)}\n\n`;
-        } else if (element.classList.contains('tool-usage')) {
-            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Tool Usage';
-            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
-            markdown += `## ${title}\n\n${htmlToMarkdown(content)}\n\n`;
-        }
-    }
-    
-    // Add footer
-    markdown += "---\n\nOpenManus © 2023-2024 | An open-source AI agent platform";
-    
-    // Create a blob and download link
-    const blob = new Blob([markdown], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `openmanus-conversation-${formatDateForFilename(currentDate)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    
-    // Cleanup
-    setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, 100);
-    
-    showSystemMessage("Markdown file generated successfully", "success");
-}
-
-/**
- * Export the conversation to an HTML file
- */
-function exportConversationToHtml() {
-    // Check if there's content to export
-    if (elements.conversation.children.length <= 1) {
-        showSystemMessage("No conversation to export", "warning");
-        return;
-    }
-    
-    // Create a clone of the conversation element for HTML export
-    const conversationClone = elements.conversation.cloneNode(true);
-    
-    // Remove any input fields or buttons from the clone
-    const inputFields = conversationClone.querySelectorAll('input, button');
-    inputFields.forEach(field => field.remove());
-    
-    // Create HTML content
-    let html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenManus Conversation</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        h1 {
-            text-align: center;
-            color: #0071e3;
-        }
-        .timestamp {
-            text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-        }
-        .message-bubble {
-            position: relative;
-            border-radius: 18px;
-            padding: 12px 16px;
-            max-width: 85%;
-            margin-bottom: 12px;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-        }
-        .user-message {
-            background-color: #0071e3;
-            color: white;
-            margin-left: auto;
-            border-bottom-right-radius: 4px;
-        }
-        .agent-message {
-            background-color: #f5f5f7;
-            color: #1d1d1f;
-            margin-right: auto;
-            border-bottom-left-radius: 4px;
-        }
-        .web-browsing, .reasoning, .tool-usage {
-            background-color: #f5f5f7;
-            padding: 8px 12px;
-            margin: 8px 0;
-            border-radius: 4px;
-        }
-        .web-browsing {
-            border-left: 3px solid #68cc45;
-        }
-        .reasoning {
-            border-left: 3px solid #bf5af2;
-        }
-        .tool-usage {
-            border-left: 3px solid #0071e3;
-        }
-        pre {
-            background-color: #f1f1f1;
-            padding: 10px;
-            border-radius: 5px;
-            overflow-x: auto;
-        }
-        code {
-            font-family: monospace;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 10px;
-            border-top: 1px solid #eee;
-            color: #666;
-        }
-    </style>
-</head>
-<body>
-    <h1>OpenManus Conversation</h1>
-    <p class="timestamp">Generated on ${new Date().toLocaleString()}</p>
-    <div class="conversation">
-        ${conversationClone.innerHTML}
-    </div>
-    <div class="footer">
-        OpenManus © 2023-2024 | An open-source AI agent platform
-    </div>
-</body>
-</html>`;
-    
-    // Create a blob and download link
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `openmanus-conversation-${formatDateForFilename(new Date())}.html`;
-    document.body.appendChild(a);
-    a.click();
-    
-    // Cleanup
-    setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, 100);
-    
-    showSystemMessage("HTML file generated successfully", "success");
-}
-
-/**
- * Format a date for use in filenames
- */
-function formatDateForFilename(date) {
-    return date.toISOString()
-        .replace(/:/g, '-')
-        .replace(/\..+/, '')
-        .replace('T', '_');
-}
-
-/**
- * Convert HTML to Markdown
- */
-function htmlToMarkdown(html) {
-    // This is a simple conversion - for a more robust solution, consider using a library
-    let markdown = html;
-    
-    // Replace <br> tags with newlines
-    markdown = markdown.replace(/<br\s*\/?>/gi, '\n');
-    
-    // Replace <p> tags
-    markdown = markdown.replace(/<p>(.*?)<\/p>/gi, '$1\n\n');
-    
-    // Replace headers
-    markdown = markdown.replace(/<h1>(.*?)<\/h1>/gi, '# $1\n\n');
-    markdown = markdown.replace(/<h2>(.*?)<\/h2>/gi, '## $1\n\n');
-    markdown = markdown.replace(/<h3>(.*?)<\/h3>/gi, '### $1\n\n');
-    
-    // Replace <strong> and <b> tags
-    markdown = markdown.replace(/<(strong|b)>(.*?)<\/(strong|b)>/gi, '**$2**');
-    
-    // Replace <em> and <i> tags
-    markdown = markdown.replace(/<(em|i)>(.*?)<\/(em|i)>/gi, '*$2*');
-    
-    // Replace <code> tags
-    markdown = markdown.replace(/<code>(.*?)<\/code>/gi, '`$1`');
-    
-    // Replace <pre><code> blocks
-    markdown = markdown.replace(/<pre><code.*?>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n');
-    
-    // Replace <ul> and <ol> lists
-    markdown = markdown.replace(/<ul>([\s\S]*?)<\/ul>/gi, function(match, list) {
-        return list.replace(/<li>(.*?)<\/li>/gi, '- $1\n');
-    });
-    
-    markdown = markdown.replace(/<ol>([\s\S]*?)<\/ol>/gi, function(match, list) {
-        let index = 1;
-        return list.replace(/<li>(.*?)<\/li>/gi, function(match, item) {
-            return `${index++}. ${item}\n`;
-        });
-    });
-    
-    // Replace <a> tags
-    markdown = markdown.replace(/<a href="(.*?)".*?>(.*?)<\/a>/gi, '[$2]($1)');
-    
-    // Remove all other HTML tags
-    markdown = markdown.replace(/<[^>]*>/g, '');
-    
-    // Decode HTML entities
-    markdown = markdown.replace(/&lt;/g, '<')
-                      .replace(/&gt;/g, '>')
-                      .replace(/&quot;/g, '"')
-                      .replace(/&apos;/g, "'")
-                      .replace(/&amp;/g, '&');
-    
-    return markdown;
-}
-
-/**
- * Add export options to the UI
- */
-function addExportOptions() {
-    const exportOptionsDiv = document.createElement('div');
-    exportOptionsDiv.className = 'export-options hidden absolute right-0 mt-2 bg-white rounded-lg shadow-apple-lg border border-apple-200 z-10';
-    exportOptionsDiv.innerHTML = `
-        <div class="py-1">
-            <button id="exportPdfOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
-                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 10V16M12 16L9 13M12 16L15 13M17 21H7C5.89543 21 5 20.1046 5 19V5C5 3.89543 5.89543 3 7 3H12.5858C12.851 3 13.1054 3.10536 13.2929 3.29289L18.7071 8.70711C18.8946 8.89464 19 9.149 19 9.41421V19C19 20.1046 18.1046 21 17 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                Save as PDF
-            </button>
-            <button id="exportMarkdownOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
-                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M14 3v4a1 1 0 0 0 1 1h4M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M9 9h1v4M12 9h1v4M9 13h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                Save as Markdown
-            </button>
-            <button id="exportHtmlOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
-                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M14 3v4a1 1 0 0 0 1 1h4M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M9 9l-2 3 2 3M15 9l2 3-2 3M12 9l-1 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                Save as HTML
-            </button>
-        </div>
-    `;
-    
-    // Add to the DOM
-    document.body.appendChild(exportOptionsDiv);
-    
-    // Store reference to the export options
-    elements.exportOptions = exportOptionsDiv;
-    elements.exportPdfOption = document.getElementById('exportPdfOption');
-    elements.exportMarkdownOption = document.getElementById('exportMarkdownOption');
-    elements.exportHtmlOption = document.getElementById('exportHtmlOption');
-    
-    // Update the export PDF button to show options
-    elements.exportPdfBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
+        // Show a confirmation
+        const typingIndicator = createTypingIndicator();
+        elements.conversation.appendChild(typingIndicator);
+        scrollToBottom();
         
-        // Position the options dropdown
-        const rect = elements.exportPdfBtn.getBoundingClientRect();
-        elements.exportOptions.style.top = `${rect.bottom}px`;
-        elements.exportOptions.style.right = `${window.innerWidth - rect.right}px`;
-        
-        // Toggle visibility
-        elements.exportOptions.classList.toggle('hidden');
-    });
-    
-    // Add event listeners for export options
-    elements.exportPdfOption.addEventListener('click', function() {
-        elements.exportOptions.classList.add('hidden');
-        exportConversationToPdf();
-    });
-    
-    elements.exportMarkdownOption.addEventListener('click', function() {
-        elements.exportOptions.classList.add('hidden');
-        exportConversationToMarkdown();
-    });
-    
-    elements.exportHtmlOption.addEventListener('click', function() {
-        elements.exportOptions.classList.add('hidden');
-        exportConversationToHtml();
-    });
-    
-    // Close dropdown when clicking elsewhere
-    document.addEventListener('click', function(e) {
-        if (!elements.exportOptions.contains(e.target) && e.target !== elements.exportPdfBtn) {
-            elements.exportOptions.classList.add('hidden');
-        }
-    });
-}
-
-/**
- * Display a final response from the agent
- */
-function displayFinalResponse(content) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message-bubble agent-message final-response';
-    
-    // Add a header to make it clear this is the final response
-    messageDiv.innerHTML = `
-        <div class="flex items-center text-accent-green font-medium mb-2">
-            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9 12L11 14L15 10M12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Final Response
-        </div>
-        <div class="pb-2 mb-2 border-b border-apple-200">
-            ${formatContent(content)}
-        </div>
-        <div class="text-xs text-apple-500 mt-2">
-            <button id="clear-conversation" class="text-accent-blue hover:underline">
-                Start a new conversation
-            </button>
-            or
-            <button id="export-conversation" class="text-accent-blue hover:underline">
-                Export this conversation
-            </button>
-        </div>
-    `;
-    
-    elements.conversation.appendChild(messageDiv);
-    
-    // Initialize syntax highlighting
-    if (typeof Prism !== 'undefined') {
-        Prism.highlightAllUnder(messageDiv);
+    } catch (err) {
+        console.error('Error submitting user response:', err);
+        showSystemMessage(`Error sending response: ${err.message}`, 'error');
     }
-    
-    scrollToBottom();
-    
-    // Add event listeners for the buttons
-    document.getElementById('clear-conversation').addEventListener('click', clearConversation);
-    document.getElementById('export-conversation').addEventListener('click', exportConversationToPdf);
 }
 
 /**
@@ -1663,14 +1463,60 @@ function addReasoningMessage(content) {
 function addToolUsageMessage(content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message-bubble tool-usage';
+    
+    // Try to extract tool name and input from content
+    let toolName = "Tool";
+    let toolInput = "";
+    let displayContent = content;
+    
+    try {
+        // Check if content is a string or object
+        if (typeof content === 'object' && content !== null) {
+            // If content is an object with tool property, extract it
+            if (content.tool) {
+                toolName = content.tool;
+            }
+            if (content.input) {
+                toolInput = typeof content.input === 'object' ? JSON.stringify(content.input, null, 2) : content.input;
+            }
+            if (content.content) {
+                displayContent = content.content;
+            } else {
+                displayContent = JSON.stringify(content, null, 2);
+            }
+        } else if (typeof content === 'string') {
+            // Try to extract tool name from the string
+            const toolMatch = content.match(/Using tool: ([^\n]+)/);
+            if (toolMatch && toolMatch[1]) {
+                toolName = toolMatch[1];
+            }
+            
+            // Try to extract input from string
+            const inputMatch = content.match(/Input: ({[^}]+})/);
+            if (inputMatch && inputMatch[1]) {
+                try {
+                    const parsedInput = JSON.parse(inputMatch[1]);
+                    toolInput = JSON.stringify(parsedInput, null, 2);
+                } catch (e) {
+                    toolInput = inputMatch[1];
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing tool usage message:", e);
+        // Fall back to original content
+        displayContent = content;
+    }
+    
     messageDiv.innerHTML = `
         <div class="flex items-center text-accent-blue font-medium mb-1">
             <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Tool Usage
+            <span class="mr-1">Using Tool:</span>
+            <span class="px-2 py-0.5 bg-accent-blue bg-opacity-10 rounded text-sm font-mono">${toolName}</span>
         </div>
-        <div>${formatContent(content)}</div>
+        <div class="tool-content">${formatContent(displayContent)}</div>
     `;
     
     elements.conversation.appendChild(messageDiv);
@@ -1690,16 +1536,40 @@ function addToolResultMessage(content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message-bubble tool-result';
     
+    // Try to extract tool name from content
+    let toolName = "Tool";
+    let displayContent = content;
+    
+    try {
+        // Check if content is a string or object
+        if (typeof content === 'object' && content !== null) {
+            // If content is an object with tool property, extract it
+            if (content.tool) {
+                toolName = content.tool;
+            }
+            if (content.content) {
+                displayContent = content.content;
+            } else {
+                displayContent = JSON.stringify(content, null, 2);
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing tool result message:", e);
+        // Fall back to original content
+        displayContent = content;
+    }
+    
     messageDiv.innerHTML = `
-        <div class="flex items-center text-accent-blue font-medium mb-1">
+        <div class="flex items-center text-accent-green font-medium mb-1">
             <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M10.3432 5.65686L5.65686 10.3432C4.78033 11.2198 4.78033 12.6262 5.65686 13.5027L10.3432 18.1891C11.2198 19.0657 12.6262 19.0657 13.5027 18.1891L18.1891 13.5027C19.0657 12.6262 19.0657 11.2198 18.1891 10.3432L13.5027 5.65686C12.6262 4.78033 11.2198 4.78033 10.3432 5.65686Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M12 9L12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M12 15.01L12.01 14.999" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Tool Result
+            <span class="mr-1">Tool Result:</span>
+            <span class="px-2 py-0.5 bg-accent-green bg-opacity-10 rounded text-sm font-mono">${toolName}</span>
         </div>
-        <div>${formatContent(content)}</div>
+        <div class="tool-result-content p-2 bg-white rounded border border-apple-200">${formatContent(displayContent)}</div>
     `;
     
     elements.conversation.appendChild(messageDiv);
@@ -1807,6 +1677,290 @@ function handleBrowserView(content, url) {
     
     // Automatically open the browser view modal
     openBrowserView();
+}
+
+/**
+ * Export the conversation to a PDF file
+ */
+function exportConversationToPdf() {
+    // Check if there's content to export
+    if (elements.conversation.children.length <= 1) {
+        showSystemMessage("No conversation to export", "warning");
+        return;
+    }
+    
+    // Create a clone of the conversation element for PDF export
+    const conversationClone = elements.conversation.cloneNode(true);
+    
+    // Remove any input fields or buttons from the clone
+    const inputFields = conversationClone.querySelectorAll('input, button, .typing-indicator');
+    inputFields.forEach(field => field.parentNode ? field.parentNode.removeChild(field) : null);
+    
+    // Create a container for the PDF content
+    const container = document.createElement('div');
+    container.className = 'pdf-container';
+    container.style.padding = '20px';
+    container.style.fontFamily = 'Arial, sans-serif';
+    
+    // Add a title
+    const title = document.createElement('h1');
+    title.textContent = 'OpenManus Conversation';
+    title.style.textAlign = 'center';
+    title.style.marginBottom = '20px';
+    title.style.fontSize = '24px';
+    title.style.fontWeight = 'bold';
+    container.appendChild(title);
+    
+    // Add a timestamp
+    const timestamp = document.createElement('p');
+    const currentDate = new Date();
+    timestamp.textContent = `Generated on ${currentDate.toLocaleString()}`;
+    timestamp.style.textAlign = 'center';
+    timestamp.style.marginBottom = '30px';
+    timestamp.style.color = '#666';
+    container.appendChild(timestamp);
+    
+    // Add the conversation content
+    container.appendChild(conversationClone);
+    
+    // Add a footer
+    const footer = document.createElement('p');
+    footer.textContent = 'OpenManus © 2023-2024 | An open-source AI agent platform';
+    footer.style.textAlign = 'center';
+    footer.style.marginTop = '30px';
+    footer.style.color = '#666';
+    footer.style.borderTop = '1px solid #eee';
+    footer.style.paddingTop = '10px';
+    container.appendChild(footer);
+    
+    // Configure PDF options
+    const opt = {
+        margin: [10, 10],
+        filename: `openmanus-conversation-${formatDateForFilename(currentDate)}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    
+    // Generate the PDF
+    showSystemMessage("Generating PDF...", "info");
+    
+    // Use html2pdf to generate and download the PDF
+    html2pdf().from(container).set(opt).save()
+        .then(() => {
+            showSystemMessage("PDF generated successfully", "success");
+        })
+        .catch(error => {
+            console.error('Error generating PDF:', error);
+            showSystemMessage("Error generating PDF", "error");
+        });
+}
+
+/**
+ * Export the conversation to a Markdown file
+ */
+function exportConversationToMarkdown() {
+    // Check if there's content to export
+    if (elements.conversation.children.length <= 1) {
+        showSystemMessage("No conversation to export", "warning");
+        return;
+    }
+    
+    // Create markdown content
+    let markdown = "# OpenManus Conversation\n\n";
+    
+    // Add timestamp
+    const currentDate = new Date();
+    markdown += `*Generated on ${currentDate.toLocaleString()}*\n\n`;
+    
+    // Process conversation elements
+    const conversationElements = elements.conversation.children;
+    for (let i = 0; i < conversationElements.length; i++) {
+        const element = conversationElements[i];
+        
+        // Skip system messages and typing indicators
+        if (element.classList.contains('typing-indicator') || 
+            (element.classList.contains('py-2') && element.classList.contains('px-3'))) {
+            continue;
+        }
+        
+        // Process based on message type
+        if (element.classList.contains('user-message')) {
+            markdown += `## User Input\n\n${htmlToMarkdown(element.innerHTML)}\n\n`;
+        } else if (element.classList.contains('agent-message')) {
+            markdown += `## Agent Response\n\n${htmlToMarkdown(element.innerHTML)}\n\n`;
+        } else if (element.classList.contains('agent-question')) {
+            markdown += `### Agent Question\n\n${htmlToMarkdown(element.innerHTML)}\n\n`;
+        } else if (element.classList.contains('web-browsing')) {
+            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Web Browsing';
+            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
+            markdown += `### ${title}\n\n${htmlToMarkdown(content)}\n\n`;
+        } else if (element.classList.contains('reasoning')) {
+            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Reasoning';
+            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
+            markdown += `#### ${title}\n\n${htmlToMarkdown(content)}\n\n`;
+        } else if (element.classList.contains('tool-usage')) {
+            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Tool Usage';
+            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
+            markdown += `#### ${title}\n\n${htmlToMarkdown(content)}\n\n`;
+        } else if (element.classList.contains('tool-result')) {
+            const title = element.querySelector('.flex.items-center')?.textContent.trim() || 'Tool Result';
+            const content = element.querySelector('.flex.items-center + div')?.innerHTML || '';
+            markdown += `##### ${title}\n\n${htmlToMarkdown(content)}\n\n`;
+        }
+    }
+    
+    // Add footer
+    markdown += "---\n\nOpenManus © 2023-2024 | An open-source AI agent platform";
+    
+    // Create a blob and download link
+    const blob = new Blob([markdown], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `openmanus-conversation-${formatDateForFilename(currentDate)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    
+    // Cleanup
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
+    
+    showSystemMessage("Markdown file generated successfully", "success");
+}
+
+/**
+ * Format a date for use in filenames
+ */
+function formatDateForFilename(date) {
+    return date.toISOString()
+        .replace(/:/g, '-')
+        .replace(/\..+/, '')
+        .replace('T', '_');
+}
+
+/**
+ * Convert HTML to Markdown
+ */
+function htmlToMarkdown(html) {
+    // This is a simple conversion - for a more robust solution, consider using a library
+    let markdown = html;
+    
+    // Replace <br> tags with newlines
+    markdown = markdown.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Replace <p> tags
+    markdown = markdown.replace(/<p>(.*?)<\/p>/gi, '$1\n\n');
+    
+    // Replace headers with markdown headers at different levels
+    markdown = markdown.replace(/<h1>(.*?)<\/h1>/gi, '# $1\n\n');
+    markdown = markdown.replace(/<h2>(.*?)<\/h2>/gi, '## $1\n\n');
+    markdown = markdown.replace(/<h3>(.*?)<\/h3>/gi, '### $1\n\n');
+    markdown = markdown.replace(/<h4>(.*?)<\/h4>/gi, '#### $1\n\n');
+    markdown = markdown.replace(/<h5>(.*?)<\/h5>/gi, '##### $1\n\n');
+    
+    // Replace <strong> and <b> tags
+    markdown = markdown.replace(/<(strong|b)>(.*?)<\/(strong|b)>/gi, '**$2**');
+    
+    // Replace <em> and <i> tags
+    markdown = markdown.replace(/<(em|i)>(.*?)<\/(em|i)>/gi, '*$2*');
+    
+    // Replace <code> tags
+    markdown = markdown.replace(/<code>(.*?)<\/code>/gi, '`$1`');
+    
+    // Replace <pre><code> blocks
+    markdown = markdown.replace(/<pre><code.*?>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n');
+    
+    // Replace <ul> and <ol> lists
+    markdown = markdown.replace(/<ul>([\s\S]*?)<\/ul>/gi, function(match, list) {
+        return list.replace(/<li>(.*?)<\/li>/gi, '- $1\n');
+    });
+    
+    markdown = markdown.replace(/<ol>([\s\S]*?)<\/ol>/gi, function(match, list) {
+        let index = 1;
+        return list.replace(/<li>(.*?)<\/li>/gi, function(match, item) {
+            return `${index++}. ${item}\n`;
+        });
+    });
+    
+    // Replace <a> tags
+    markdown = markdown.replace(/<a href="(.*?)".*?>(.*?)<\/a>/gi, '[$2]($1)');
+    
+    // Remove all other HTML tags
+    markdown = markdown.replace(/<[^>]*>/g, '');
+    
+    // Decode HTML entities
+    markdown = markdown.replace(/&lt;/g, '<')
+                       .replace(/&gt;/g, '>')
+                       .replace(/&quot;/g, '"')
+                       .replace(/&apos;/g, "'")
+                       .replace(/&amp;/g, '&');
+    
+    return markdown;
+}
+
+/**
+ * Add export options to the UI
+ */
+function addExportOptions() {
+    const exportOptionsDiv = document.createElement('div');
+    exportOptionsDiv.className = 'export-options hidden absolute right-0 mt-2 bg-white rounded-lg shadow-apple-lg border border-apple-200 z-10';
+    exportOptionsDiv.innerHTML = `
+        <div class="py-1">
+            <button id="exportPdfOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
+                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 10V16M12 16L9 13M12 16L15 13M17 21H7C5.89543 21 5 20.1046 5 19V5C5 3.89543 5.89543 3 7 3H12.5858C12.851 3 13.1054 3.10536 13.2929 3.29289L18.7071 8.70711C18.8946 8.89464 19 9.149 19 9.41421V19C19 20.1046 18.1046 21 17 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Save as PDF
+            </button>
+            <button id="exportMarkdownOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
+                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 3v4a1 1 0 0 0 1 1h4M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M9 9h1v4M12 9h1v4M9 13h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Save as Markdown
+            </button>
+        </div>
+    `;
+    
+    // Add to the DOM
+    document.body.appendChild(exportOptionsDiv);
+    
+    // Store reference to the export options
+    elements.exportOptions = exportOptionsDiv;
+    
+    // Update the export PDF button to show options
+    elements.exportPdfBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        
+        // Position the options dropdown
+        const rect = elements.exportPdfBtn.getBoundingClientRect();
+        elements.exportOptions.style.top = `${rect.bottom}px`;
+        elements.exportOptions.style.right = `${window.innerWidth - rect.right}px`;
+        
+        // Toggle visibility
+        elements.exportOptions.classList.toggle('hidden');
+    });
+    
+    // Add event listeners for export options
+    document.getElementById('exportPdfOption').addEventListener('click', function() {
+        elements.exportOptions.classList.add('hidden');
+        exportConversationToPdf();
+    });
+    
+    document.getElementById('exportMarkdownOption').addEventListener('click', function() {
+        elements.exportOptions.classList.add('hidden');
+        exportConversationToMarkdown();
+    });
+    
+    // Close dropdown when clicking elsewhere
+    document.addEventListener('click', function(e) {
+        if (!elements.exportOptions.contains(e.target) && e.target !== elements.exportPdfBtn) {
+            elements.exportOptions.classList.add('hidden');
+        }
+    });
 }
 
 // Initialize the application when the DOM is loaded

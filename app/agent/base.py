@@ -46,8 +46,44 @@ class BaseAgent(BaseModel, ABC):
         arbitrary_types_allowed = True
         extra = "allow"  # Allow extra fields for flexibility in subclasses
 
-    def update_llm_config(self, model, api_key, max_tokens=None):
-        self.llm.update_config(model, api_key, max_tokens)
+    def update_llm_config(self, model=None, api_key=None, max_tokens=None):
+        """
+        Update the LLM configuration settings for this agent
+        
+        Args:
+            model: Model name to use (e.g., "gpt-4", "gpt-3.5-turbo")
+            api_key: API key for the model provider
+            max_tokens: Maximum tokens to generate in completions
+            
+        Raises:
+            ValueError: If the API key format is invalid
+        """
+        # Validate model name if provided
+        if model and not isinstance(model, str):
+            raise ValueError(f"Model name must be a string, got {type(model)}")
+            
+        # Validate API key if provided
+        if api_key:
+            if not isinstance(api_key, str):
+                raise ValueError(f"API key must be a string, got {type(api_key)}")
+            
+            # Basic format validation for common API key formats
+            if api_key.startswith("sk-") and len(api_key) < 20:
+                # OpenAI keys are typically much longer
+                raise ValueError("API key appears to be invalid (too short)")
+        
+        # Validate max_tokens if provided
+        if max_tokens is not None:
+            if not isinstance(max_tokens, int) or max_tokens <= 0:
+                raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
+        
+        # Update the LLM configuration
+        try:
+            self.llm.update_config(model, api_key, max_tokens)
+            logger.info(f"Updated LLM config for agent {self.name} with model: {model or 'unchanged'}")
+        except Exception as e:
+            logger.error(f"Error updating LLM config: {str(e)}")
+            raise ValueError(f"Failed to update LLM configuration: {str(e)}")
 
     @model_validator(mode="after")
     def initialize_agent(self) -> "BaseAgent":

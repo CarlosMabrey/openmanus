@@ -1,22 +1,52 @@
-# Global LLM configuration
+# Global LLM configuration (default provider)
 [llm]
-model = "claude-3-5-sonnet"
+model = "gpt-4o"
 base_url = "https://api.openai.com/v1"
-api_key = "sk-..."
+api_key = "sk-..."  # Your OpenAI API key
 max_tokens = 4096
 temperature = 0.0
 
-# [llm] #AZURE OPENAI:
-# api_type= 'azure'
-# model = "YOUR_MODEL_NAME" #"gpt-4o-mini"
-# base_url = "{YOUR_AZURE_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_DEPOLYMENT_ID}"
-# api_key = "AZURE API KEY"
-# max_tokens = 8096
-# temperature = 0.0
-# api_version="AZURE API VERSION" #"2024-08-01-preview"
-
-# Optional configuration for specific LLM models
-[llm.vision]
+# Anthropic provider configuration
+[llm.anthropic]
 model = "claude-3-5-sonnet"
+api_type = "anthropic"
+base_url = "https://api.anthropic.com"
+api_key = "sk-ant-..."  # Your Anthropic API key
+max_tokens = 4096
+temperature = 0.0
+
+# Azure OpenAI provider configuration
+[llm.azure]
+api_type = "azure"
+model = "gpt-4o"  # The deployment name in your Azure account
+base_url = "https://YOUR_AZURE_ENDPOINT.openai.azure.com"
+api_key = "YOUR_AZURE_API_KEY"
+max_tokens = 4096
+temperature = 0.0
+api_version = "2023-07-01"  # Your Azure API version
+
+# Google Gemini configuration (coming soon)
+[llm.google]
+api_type = "google"
+model = "gemini-pro"
+base_url = "https://generativelanguage.googleapis.com"
+api_key = "YOUR_GOOGLE_API_KEY"
+max_tokens = 4096
+temperature = 0.0
+
+# Meta AI configuration (coming soon)
+[llm.meta]
+api_type = "meta"
+model = "llama-3-70b-instruct"
+base_url = "https://llama-api.meta.com"
+api_key = "YOUR_META_API_KEY"
+max_tokens = 4096
+temperature = 0.0
+
+# Vision-specific model configuration
+[llm.vision]
+model = "gpt-4o"  # gpt-4-vision or claude-3-opus also work well for vision
 base_url = "https://api.openai.com/v1"
-api_key = "sk-..."
+api_key = "sk-..."  # Your OpenAI API key
+max_tokens = 4096
+temperature = 0.0
