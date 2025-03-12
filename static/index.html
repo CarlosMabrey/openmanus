@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="OpenManus - An autonomous AI agent platform">
+    <meta name="theme-color" content="#0071e3">
     <title>OpenManus AI</title>
     <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -14,10 +16,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <!-- Add file display styling -->
+    <link href="css/file-display.css" rel="stylesheet" />
     <!-- Add html2pdf.js for PDF export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -47,6 +52,7 @@
                     boxShadow: {
                         'apple': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                         'apple-lg': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                        'dark': '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)',
                     }
                 },
             },
@@ -71,6 +77,18 @@
         
         ::-webkit-scrollbar-thumb:hover {
             background-color: #86868b;
+        }
+        
+        .dark ::-webkit-scrollbar-track {
+            background: #333336;
+        }
+        
+        .dark ::-webkit-scrollbar-thumb {
+            background-color: #6e6e73;
+        }
+        
+        .dark ::-webkit-scrollbar-thumb:hover {
+            background-color: #a1a1a7;
         }
 
         /* Animation for loading */
@@ -126,6 +144,7 @@
             max-width: 85%;
             margin-bottom: 12px;
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
         }
 
         .user-message {
@@ -141,6 +160,11 @@
             margin-right: auto;
             border-bottom-left-radius: 4px;
         }
+        
+        .dark .agent-message {
+            background-color: #333336;
+            color: #f5f5f7;
+        }
 
         /* Tool usage styles */
         .tool-usage {
@@ -151,12 +175,22 @@
             border-radius: 4px;
         }
         
+        .dark .tool-usage {
+            background-color: #333336;
+            border-left: 3px solid #0071e3;
+        }
+        
         .tool-result {
             background-color: #f5f5f7;
             border-left: 3px solid #34c759;
             padding: 8px 12px;
             margin: 8px 0;
             border-radius: 4px;
+        }
+        
+        .dark .tool-result {
+            background-color: #333336;
+            border-left: 3px solid #34c759;
         }
 
         .agent-question {
@@ -166,6 +200,11 @@
             margin: 8px 0;
             border-radius: 4px;
         }
+        
+        .dark .agent-question {
+            background-color: #333336;
+            border-left: 3px solid #bf5af2;
+        }
 
         .web-browsing {
             background-color: #f5f5f7;
@@ -173,6 +212,11 @@
             padding: 8px 12px;
             margin: 8px 0;
             border-radius: 4px;
+        }
+        
+        .dark .web-browsing {
+            background-color: #333336;
+            border-left: 3px solid #68cc45;
         }
 
         .reasoning {
@@ -182,6 +226,11 @@
             margin: 8px 0;
             border-radius: 4px;
         }
+        
+        .dark .reasoning {
+            background-color: #333336;
+            border-left: 3px solid #bf5af2;
+        }
 
         /* Glass morphism effect */
         .glass {
@@ -189,10 +238,70 @@
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: all 0.3s ease;
+        }
+        
+        .dark .glass {
+            background: rgba(40, 40, 45, 0.7);
+            border: 1px solid rgba(80, 80, 85, 0.3);
+        }
+        
+        /* Typewriter effect */
+        .typewriter {
+            display: inline-block;
+            overflow: hidden;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        /* Dark mode toggle */
+        .theme-toggle {
+            position: relative;
+            width: 48px;
+            height: 24px;
+            border-radius: 12px;
+            background-color: #e8e8ed;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .dark .theme-toggle {
+            background-color: #424245;
+        }
+        
+        .theme-toggle::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .dark .theme-toggle::before {
+            transform: translateX(24px);
+            background-color: #0071e3;
+        }
+        
+        /* Config styles */
+        .config-select, .config-input {
+            @apply w-full px-3 py-2 bg-white dark:bg-apple-700 border border-apple-200 dark:border-apple-600 rounded-lg text-apple-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition;
+        }
+        
+        .config-row {
+            @apply mb-4;
+        }
+        
+        .config-row label {
+            @apply block text-sm font-medium text-apple-600 dark:text-apple-300 mb-2;
         }
     </style>
 </head>
-<body class="bg-gradient-to-br from-apple-50 to-apple-100 font-sans min-h-screen">
+<body class="bg-gradient-to-br from-apple-50 to-apple-100 dark:from-apple-800 dark:to-apple-900 font-sans min-h-screen transition-colors duration-300">
     <div class="container mx-auto px-4 py-8">
         <!-- Header -->
         <header class="mb-8">
@@ -201,10 +310,13 @@
                     <svg class="h-10 w-10 text-accent-blue" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M9 6.75V15M15 9V17.25M16.5 19.5H21.75V4.5H2.25V19.5H7.5M12 4.5V19.5M16.5 19.5C16.5 21.1569 14.6569 22.5 12 22.5C9.34315 22.5 7.5 21.1569 7.5 19.5M16.5 19.5H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    <h1 class="text-3xl font-bold text-apple-800">OpenManus</h1>
+                    <h1 class="text-3xl font-bold text-apple-800 dark:text-white">OpenManus</h1>
                 </div>
-                <div class="text-sm text-apple-500">
-                    Autonomous AI Agent Platform
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-apple-500 dark:text-apple-300">
+                        Autonomous AI Agent Platform
+                    </div>
+                    <div id="theme-toggle" class="theme-toggle" role="button" aria-label="Toggle dark mode" tabindex="0"></div>
                 </div>
             </div>
         </header>
@@ -212,8 +324,8 @@
         <!-- Main Content -->
         <div class="flex flex-col lg:flex-row gap-6">
             <!-- Left Panel - Configuration -->
-            <div class="w-full lg:w-1/3 glass rounded-2xl shadow-apple p-6">
-                <h2 class="text-xl font-semibold text-apple-800 mb-6 flex items-center">
+            <div class="w-full lg:w-1/3 glass rounded-2xl shadow-apple dark:shadow-dark p-6">
+                <h2 class="text-xl font-semibold text-apple-800 dark:text-white mb-6 flex items-center">
                     <svg class="w-5 h-5 mr-2 text-accent-blue" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M10.3246 4.31731C10.751 2.5609 13.249 2.5609 13.6754 4.31731C13.9508 5.45193 15.2507 5.99038 16.2478 5.38285C17.7913 4.44239 19.5576 6.2087 18.6172 7.75218C18.0096 8.74925 18.5481 10.0492 19.6827 10.3246C21.4391 10.751 21.4391 13.249 19.6827 13.6754C18.5481 13.9508 18.0096 15.2507 18.6172 16.2478C19.5576 17.7913 17.7913 19.5576 16.2478 18.6172C15.2507 18.0096 13.9508 18.5481 13.6754 19.6827C13.249 21.4391 10.751 21.4391 10.3246 19.6827C10.0492 18.5481 8.74926 18.0096 7.75219 18.6172C6.2087 19.5576 4.44239 17.7913 5.38285 16.2478C5.99038 15.2507 5.45193 13.9508 4.31731 13.6754C2.5609 13.249 2.5609 10.751 4.31731 10.3246C5.45193 10.0492 5.99037 8.74926 5.38285 7.75218C4.44239 6.2087 6.2087 4.44239 7.75219 5.38285C8.74926 5.99037 10.0492 5.45193 10.3246 4.31731Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         <path d="M15 12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12C9 10.3431 10.3431 9 12 9C13.6569 9 15 10.3431 15 12Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -222,103 +334,88 @@
                 </h2>
 
                 <div class="space-y-5">
-                    <!-- Deployment Type -->
-                    <div>
-                        <label class="block text-sm font-medium text-apple-600 mb-2" for="deployType">
-                            Deployment Type
-                        </label>
-                        <select id="deployType" class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition">
-                            <option value="local">Local Deployment</option>
-                            <option value="cloud">Cloud Model</option>
-                        </select>
-                    </div>
-
-                    <!-- Local Models -->
-                    <div id="localModels">
-                        <label class="block text-sm font-medium text-apple-600 mb-2" for="localModelSelect">
-                            Available Local Models
-                        </label>
-                        <select id="localModelSelect" class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition">
-                            <option value="qwen2.5:14b">Qwen 2.5 (14B)</option>
-                            <option value="deepseek-r1:7b">DeepSeek R1 (7B)</option>
-                            <option value="qwq:latest">QWQ (32B)</option>
-                        </select>
-                    </div>
-
-                    <!-- Cloud Models -->
-                    <div id="cloudConfig" class="hidden space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-apple-600 mb-2" for="cloudModelSelect">
-                                Cloud Models
-                            </label>
-                            <select id="cloudModelSelect" class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition">
-                                <option value="gpt-4o-mini">GPT-4o Mini</option>
-                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                    <!-- Configuration section -->
+                    <div class="config-section">
+                        <div class="config-row">
+                            <label for="deployment-select">Deployment Type:</label>
+                            <select id="deployment-select" class="config-select">
+                                <option value="cloud" selected>Cloud</option>
+                                <option value="local">Local</option>
                             </select>
                         </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-apple-600 mb-2" for="apiKey">
-                                API Key
-                            </label>
-                            <div class="flex space-x-2">
-                                <input type="password" id="apiKey" placeholder="Enter your API key" class="flex-1 px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition">
-                                <button id="saveKeyBtn" class="px-3 py-2 bg-accent-green text-white rounded-lg hover:bg-green-600 transition" title="Save API key">
-                                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M8 7H5C3.89543 7 3 7.89543 3 9V18C3 19.1046 3.89543 20 5 20H19C20.1046 20 21 19.1046 21 18V9C21 7.89543 20.1046 7 19 7H16M15 11L12 14M12 14L9 11M12 14V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                </button>
-                                <button id="clearKeyBtn" class="px-3 py-2 bg-accent-red text-white rounded-lg hover:bg-red-600 transition" title="Clear saved API key">
-                                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M19 7L18.1327 19.1425C18.0579 20.1891 17.187 21 16.1378 21H7.86224C6.81296 21 5.94208 20.1891 5.86732 19.1425L5 7M10 11V17M14 11V17M15 7V4C15 3.44772 14.5523 3 14 3H10C9.44772 3 9 3.44772 9 4V7M4 7H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                </button>
+                        
+                        <div id="cloud-config" class="config-row">
+                            <label for="cloud-model-select">Cloud Model:</label>
+                            <select id="cloud-model-select" class="config-select">
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                                <option value="claude-3-5-sonnet-20240620" selected>Claude 3.5 Sonnet</option>
+                            </select>
+                            
+                            <div class="mt-4">
+                                <label for="api-key-input" class="block text-sm font-medium text-apple-600 dark:text-apple-300 mb-2">API Key:</label>
+                                <div class="flex space-x-2">
+                                    <input type="password" id="api-key-input" class="flex-1 px-3 py-2 bg-white dark:bg-apple-700 border border-apple-200 dark:border-apple-600 rounded-lg text-apple-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition" placeholder="Enter your API key">
+                                    <button id="save-key-btn" class="px-3 py-1.5 text-sm font-medium text-white bg-accent-blue rounded-lg hover:bg-blue-700 transition">Save</button>
+                                    <button id="clear-key-btn" class="px-3 py-1.5 text-sm font-medium text-apple-700 dark:text-apple-300 bg-white dark:bg-apple-700 border border-apple-300 dark:border-apple-600 rounded-lg hover:bg-apple-50 dark:hover:bg-apple-600 transition">Clear</button>
+                                </div>
                             </div>
-                            <p class="mt-1 text-xs text-apple-500">API keys are stored securely in your browser's local storage.</p>
+                        </div>
+                        
+                    <div id="local-models" class="config-row hidden">
+                            <label for="local-model-select">Local Model:</label>
+                            <select id="local-model-select" class="config-select">
+                                <option value="gpt4all-j">GPT4All-J</option>
+                                <option value="llama-2-7b">Llama 2 7B</option>
+                                <option value="llama-2-13b">Llama 2 13B</option>
+                                <option value="mistral-7b">Mistral 7B</option>
+                            </select>
+                        </div>
+                            
+                        <div class="config-row">
+                            <label for="max-steps">Max Steps:</label>
+                            <input type="number" id="max-steps" class="config-input" value="30" min="1" max="100">
+                        </div>
+                            
+                        <div class="config-row">
+                            <label for="verbosity-control">Response Verbosity:</label>
+                            <select id="verbosity-control" class="config-select">
+                                <option value="concise">Concise - Minimize tokens</option>
+                                <option value="normal" selected>Normal - Balanced responses</option>
+                                <option value="detailed">Detailed - Full explanations</option>
+                            </select>
                         </div>
                     </div>
 
                     <!-- Prompt Input -->
                     <div>
-                        <label class="block text-sm font-medium text-apple-600 mb-2" for="input">
+                        <label class="block text-sm font-medium text-apple-600 dark:text-apple-300 mb-2" for="prompt-input">
                             Your Request
                         </label>
-                        <textarea id="input" rows="6" placeholder="Describe what you want OpenManus to do..." class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition resize-none"></textarea>
+                        <textarea id="prompt-input" rows="6" placeholder="Describe what you want OpenManus to do..." class="w-full px-3 py-2 bg-white dark:bg-apple-700 border border-apple-200 dark:border-apple-600 rounded-lg text-apple-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition resize-none"></textarea>
                         
                         <!-- Example Requests -->
                         <div class="mt-2">
                             <div class="flex items-center">
-                                <span class="text-xs text-apple-500">Example requests:</span>
+                                <span class="text-xs text-apple-500 dark:text-apple-300">Example requests:</span>
                                 <div class="ml-2 flex flex-wrap gap-2">
-                                    <button class="example-request-btn text-xs bg-apple-100 hover:bg-apple-200 text-apple-700 py-1 px-2 rounded-full transition">Japan Travel Itinerary</button>
-                                    <button class="example-request-btn text-xs bg-apple-100 hover:bg-apple-200 text-apple-700 py-1 px-2 rounded-full transition">Data Analysis</button>
-                                    <button class="example-request-btn text-xs bg-apple-100 hover:bg-apple-200 text-apple-700 py-1 px-2 rounded-full transition">Website Creation</button>
-                                    <button class="example-request-btn text-xs bg-apple-100 hover:bg-apple-200 text-apple-700 py-1 px-2 rounded-full transition">Research Summary</button>
+                                    <button class="example-request-btn text-xs bg-apple-100 dark:bg-apple-700 hover:bg-apple-200 dark:hover:bg-apple-600 text-apple-700 dark:text-apple-200 py-1 px-2 rounded-full transition">Japan Travel Itinerary</button>
+                                    <button class="example-request-btn text-xs bg-apple-100 dark:bg-apple-700 hover:bg-apple-200 dark:hover:bg-apple-600 text-apple-700 dark:text-apple-200 py-1 px-2 rounded-full transition">Data Analysis</button>
+                                    <button class="example-request-btn text-xs bg-apple-100 dark:bg-apple-700 hover:bg-apple-200 dark:hover:bg-apple-600 text-apple-700 dark:text-apple-200 py-1 px-2 rounded-full transition">Website Creation</button>
+                                    <button class="example-request-btn text-xs bg-apple-100 dark:bg-apple-700 hover:bg-apple-200 dark:hover:bg-apple-600 text-apple-700 dark:text-apple-200 py-1 px-2 rounded-full transition">Research Summary</button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Max Steps -->
-                    <div>
-                        <label class="block text-sm font-medium text-apple-600 mb-2" for="maxSteps">
-                            Max Steps
-                        </label>
-                        <div class="flex items-center">
-                            <input type="number" id="maxSteps" min="1" max="100" value="30" class="w-full px-3 py-2 bg-white border border-apple-200 rounded-lg text-apple-800 focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition">
-                            <span class="ml-2 text-apple-500 text-sm">Higher values allow more complex tasks but may take longer.</span>
-                        </div>
-                    </div>
-
                     <!-- Action Buttons -->
                     <div class="flex space-x-3 pt-2">
-                        <button id="executeBtn" class="flex-1 bg-accent-blue hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center">
+                        <button id="execute-btn" class="flex-1 bg-accent-blue hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center">
                             <svg class="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                             Execute
                         </button>
-                        <button id="stopBtn" disabled class="flex-1 bg-accent-red hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center opacity-50">
+                        <button id="stop-btn" disabled class="flex-1 bg-accent-red hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center opacity-50">
                             <svg class="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M6 18L18 6M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
@@ -329,20 +426,20 @@
             </div>
 
             <!-- Right Panel - Conversation -->
-            <div class="w-full lg:w-2/3 glass rounded-2xl shadow-apple p-6">
-                <div class="flex justify-between items-center p-3 border-b border-apple-200">
+            <div class="w-full lg:w-2/3 glass rounded-2xl shadow-apple dark:shadow-dark p-6">
+                <div class="flex justify-between items-center p-3 border-b border-apple-200 dark:border-apple-600">
                     <div class="flex items-center">
                         <img src="img/logo.png" alt="OpenManus Logo" class="h-8 mr-2">
-                        <h1 class="text-xl font-semibold text-apple-900">OpenManus</h1>
+                        <h1 class="text-xl font-semibold text-apple-900 dark:text-white">OpenManus</h1>
                     </div>
                     <div class="flex space-x-2">
-                        <button id="clearBtn" class="px-3 py-1.5 text-sm font-medium text-apple-700 bg-white border border-apple-300 rounded-md hover:bg-apple-50 transition flex items-center">
+                        <button id="clear-btn" class="px-3 py-1.5 text-sm font-medium text-apple-700 dark:text-apple-300 bg-white dark:bg-apple-700 border border-apple-300 dark:border-apple-600 rounded-md hover:bg-apple-50 dark:hover:bg-apple-600 transition flex items-center">
                             <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-6 5v6m4-6v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                             Clear
                         </button>
-                        <button id="exportPdfBtn" class="px-3 py-1.5 text-sm font-medium text-apple-700 bg-white border border-apple-300 rounded-md hover:bg-apple-50 transition flex items-center">
+                        <button id="export-pdf-btn" class="px-3 py-1.5 text-sm font-medium text-apple-700 dark:text-apple-300 bg-white dark:bg-apple-700 border border-apple-300 dark:border-apple-600 rounded-md hover:bg-apple-50 dark:hover:bg-apple-600 transition flex items-center">
                             <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M12 10V16M12 16L9 13M12 16L15 13M17 21H7C5.89543 21 5 20.1046 5 19V5C5 3.89543 5.89543 3 7 3H12.5858C12.851 3 13.1054 3.10536 13.2929 3.29289L18.7071 8.70711C18.8946 8.89464 19 9.149 19 9.41421V19C19 20.1046 18.1046 21 17 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
@@ -354,24 +451,38 @@
                     </div>
                 </div>
                 
-                <div id="conversation" class="h-[calc(100vh-16rem)] bg-white rounded-xl p-4 overflow-y-auto flex flex-col">
-                    <div class="text-apple-500 text-center py-4">OpenManus is ready. Configure your agent and enter your request to begin.</div>
+                <div id="conversation" class="h-[calc(100vh-16rem)] bg-white dark:bg-apple-800 rounded-xl p-4 overflow-y-auto flex flex-col">
+                    <div class="text-apple-500 dark:text-apple-300 text-center py-4">OpenManus is ready. Configure your agent and enter your request to begin.</div>
                     <div class="flex-grow"></div>
+                </div>
+                
+                <!-- Chat Input Area -->
+                <div class="mt-4 relative">
+                    <div class="flex items-center">
+                        <div class="relative flex-grow">
+                            <textarea id="chat-input" rows="1" placeholder="Ask a follow-up question..." class="w-full px-4 py-3 bg-white dark:bg-apple-700 border border-apple-200 dark:border-apple-600 rounded-l-lg text-apple-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent transition resize-none"></textarea>
+                        </div>
+                        <button id="send-btn" class="px-4 py-3 bg-accent-blue hover:bg-blue-700 text-white font-medium rounded-r-lg transition flex items-center justify-center">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Footer -->
-        <footer class="mt-8 text-center text-apple-500 text-sm">
+        <footer class="mt-8 text-center text-apple-500 dark:text-apple-400 text-sm">
             <p>OpenManus &copy; 2023-2024 | An open-source AI agent platform</p>
         </footer>
     </div>
 
     <!-- Browser View Modal -->
     <div id="browserViewModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-xl shadow-apple-lg w-full max-w-5xl max-h-[90vh] flex flex-col">
+        <div class="bg-white dark:bg-apple-800 rounded-xl shadow-apple-lg dark:shadow-dark w-full max-w-5xl max-h-[90vh] flex flex-col">
             <!-- Modal Header -->
-            <div class="flex items-center justify-between p-4 border-b border-apple-200">
+            <div class="flex items-center justify-between p-4 border-b border-apple-200 dark:border-apple-600">
                 <div class="flex items-center space-x-2">
                     <svg class="w-5 h-5 text-accent-green" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -380,41 +491,120 @@
                         <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    <span class="font-medium text-apple-800" id="browserViewTitle">Browser View</span>
+                    <span class="font-medium text-apple-800 dark:text-white" id="browserViewTitle">Browser View</span>
                 </div>
-                <button id="closeBrowserViewBtn" class="text-apple-500 hover:text-apple-700 transition">
-                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6 18L18 6M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="flex items-center space-x-2">
+                    <button id="toggleLiveViewBtn" class="px-3 py-1 text-xs font-medium text-white bg-accent-green rounded-md hover:bg-green-600 transition flex items-center">
+                        <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M15 10l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M4 4v7a4 4 0 0 0 4 4h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Toggle Live View
+                    </button>
+                    <button id="closeBrowserViewBtn" class="text-apple-500 dark:text-apple-300 hover:text-apple-700 dark:hover:text-white transition">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M6 18L18 6M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             
             <!-- Browser URL Bar -->
-            <div class="flex items-center p-2 bg-apple-50 border-b border-apple-200">
-                <div class="flex-1 bg-white rounded-lg border border-apple-200 px-3 py-1 text-sm text-apple-800 overflow-hidden overflow-ellipsis whitespace-nowrap" id="browserViewUrl">
+            <div class="flex items-center p-2 bg-apple-50 dark:bg-apple-700 border-b border-apple-200 dark:border-apple-600">
+                <div class="flex-1 bg-white dark:bg-apple-800 rounded-lg border border-apple-200 dark:border-apple-600 px-3 py-1 text-sm text-apple-800 dark:text-white overflow-hidden overflow-ellipsis whitespace-nowrap" id="browserViewUrl">
                     https://example.com
                 </div>
             </div>
             
             <!-- Browser Content -->
-            <div class="flex-1 overflow-auto p-2">
+            <div class="flex-1 overflow-auto p-2 bg-white dark:bg-apple-800">
+                <!-- Screenshot View (default) -->
                 <div id="browserViewContent" class="w-full h-full flex items-center justify-center">
-                    <img id="browserViewImage" class="max-w-full max-h-[70vh] object-contain rounded-lg border border-apple-200" src="" alt="Browser screenshot">
+                    <img id="browserViewImage" class="max-w-full max-h-[70vh] object-contain rounded-lg border border-apple-200 dark:border-apple-600" src="" alt="Browser screenshot">
+                </div>
+                
+                <!-- Live Browser View (toggled) -->
+                <div id="liveBrowserView" class="w-full h-full hidden">
+                    <iframe id="browserIframe" class="w-full h-[70vh] border border-apple-200 dark:border-apple-600 rounded-lg" src="about:blank"></iframe>
                 </div>
             </div>
             
             <!-- Modal Footer -->
-            <div class="p-3 border-t border-apple-200 text-xs text-apple-500 text-center">
-                This is a screenshot of the browser that OpenManus is interacting with
+            <div class="p-3 border-t border-apple-200 dark:border-apple-600 text-xs text-apple-500 dark:text-apple-300 text-center">
+                <span id="screenshotModeText">This is a screenshot of the browser that OpenManus is interacting with</span>
+                <span id="liveModeText" class="hidden">Live browser view - OpenManus is controlling this browser</span>
             </div>
+        </div>
+    </div>
+
+    <!-- Embedded Browser Toggle Button (Fixed Position) -->
+    <div id="embeddedBrowserToggle" class="fixed bottom-4 right-4 bg-accent-blue text-white rounded-full p-3 shadow-apple-lg dark:shadow-dark cursor-pointer hover:bg-blue-700 transition z-40 hidden">
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </div>
+    
+    <!-- Floating Browser Panel -->
+    <div id="floatingBrowserPanel" class="fixed bottom-4 right-4 bg-white dark:bg-apple-800 rounded-xl shadow-apple-lg dark:shadow-dark w-96 z-40 hidden overflow-hidden">
+        <!-- Panel Header -->
+        <div class="flex items-center justify-between p-3 bg-apple-50 dark:bg-apple-700 border-b border-apple-200 dark:border-apple-600">
+            <div class="flex items-center space-x-2">
+                <svg class="w-4 h-4 text-accent-green" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="font-medium text-sm text-apple-800 dark:text-white" id="floatingBrowserTitle">Browser View</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button id="expandBrowserBtn" class="text-apple-500 dark:text-apple-300 hover:text-apple-700 dark:hover:text-white transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M15 3H21M21 3V9M21 3L14 10M9 21H3M3 21V15M3 21L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <button id="closeFloatingBrowserBtn" class="text-apple-500 dark:text-apple-300 hover:text-apple-700 dark:hover:text-white transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 18L18 6M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Browser URL Bar -->
+        <div class="px-2 py-1 bg-apple-50 dark:bg-apple-700 border-b border-apple-200 dark:border-apple-600">
+            <div class="bg-white dark:bg-apple-800 rounded-lg border border-apple-200 dark:border-apple-600 px-2 py-1 text-xs text-apple-800 dark:text-white overflow-hidden overflow-ellipsis whitespace-nowrap" id="floatingBrowserUrl">
+                https://example.com
+            </div>
+        </div>
+        
+        <!-- Browser Content -->
+        <div class="h-64 overflow-auto p-2 bg-white dark:bg-apple-800">
+            <img id="floatingBrowserImage" class="w-full object-contain rounded-lg border border-apple-200 dark:border-apple-600" src="" alt="Browser screenshot">
+        </div>
+        
+        <!-- Auto-update Toggle -->
+        <div class="p-2 border-t border-apple-200 dark:border-apple-600 bg-apple-50 dark:bg-apple-700 flex items-center justify-between">
+            <label class="flex items-center text-xs text-apple-700 dark:text-apple-200">
+                <input type="checkbox" id="autoUpdateToggle" class="mr-2" checked>
+                Auto-update screenshots
+            </label>
+            <button id="takeBrowserScreenshotBtn" class="px-2 py-1 text-xs font-medium text-white bg-accent-blue rounded hover:bg-blue-700 transition">
+                Take Screenshot
+            </button>
         </div>
     </div>
 
     <script>
         // Dynamic display of configuration areas
-        document.getElementById('deployType').addEventListener('change', function(e) {
-            const cloudConfig = document.getElementById('cloudConfig');
-            const localModels = document.getElementById('localModels');
+        document.getElementById('deployment-select').addEventListener('change', function(e) {
+            const cloudConfig = document.getElementById('cloud-config');
+            const localModels = document.getElementById('local-models');
             if (e.target.value === 'cloud') {
                 cloudConfig.classList.remove('hidden');
                 localModels.classList.add('hidden');
@@ -426,6 +616,148 @@
                 cloudConfig.classList.add('hidden');
                 localModels.classList.remove('hidden');
             }
+        });
+        
+        // Ensure correct initial state on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Make sure the Cloud config is shown and Local config is hidden on page load
+            const cloudConfig = document.getElementById('cloud-config');
+            const localModels = document.getElementById('local-models');
+            cloudConfig.classList.remove('hidden');
+            localModels.classList.add('hidden');
+            
+            // Update API key field if available
+            if (typeof updateApiKeyField === 'function') {
+                updateApiKeyField();
+            }
+            
+            // Initialize dark mode
+            initDarkMode();
+            
+            // Initialize chat input
+            initChatInput();
+        });
+        
+        // Dark mode toggle functionality
+        function initDarkMode() {
+            const themeToggle = document.getElementById('theme-toggle');
+            const html = document.documentElement;
+            
+            // Check for saved theme preference or use system preference
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                html.classList.add('dark');
+            } else {
+                html.classList.remove('dark');
+            }
+            
+            // Toggle theme when the button is clicked
+            themeToggle.addEventListener('click', function() {
+                if (html.classList.contains('dark')) {
+                    html.classList.remove('dark');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    html.classList.add('dark');
+                    localStorage.setItem('theme', 'dark');
+                }
+            });
+            
+            // Listen for system theme changes
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+                if (!localStorage.getItem('theme')) {
+                    if (e.matches) {
+                        html.classList.add('dark');
+                    } else {
+                        html.classList.remove('dark');
+                    }
+                }
+            });
+        }
+        
+        // Typewriter effect for agent messages
+        function typewriterEffect(element, text, speed = 10) {
+            let i = 0;
+            element.textContent = '';
+            element.classList.add('typewriter');
+            
+            function type() {
+                if (i < text.length) {
+                    element.textContent += text.charAt(i);
+                    i++;
+                    setTimeout(type, speed);
+                } else {
+                    element.classList.remove('typewriter');
+                }
+            }
+            
+            type();
+        }
+        
+        // Initialize chat input functionality
+        function initChatInput() {
+            const chatInput = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            
+            if (chatInput && sendBtn) {
+                // Auto-resize textarea as user types
+                chatInput.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = (this.scrollHeight) + 'px';
+                });
+                
+                // Send message when button is clicked
+                sendBtn.addEventListener('click', function() {
+                    const message = chatInput.value.trim();
+                    if (message) {
+                        // Use the existing prompt input and execute button
+                        const promptInput = document.getElementById('prompt-input');
+                        const executeBtn = document.getElementById('execute-btn');
+                        
+                        if (promptInput && executeBtn) {
+                            promptInput.value = message;
+                            chatInput.value = '';
+                            chatInput.style.height = 'auto';
+                            
+                            // Trigger the execute button click
+                            executeBtn.click();
+                        }
+                    }
+                });
+                
+                // Send message when Enter is pressed (without Shift)
+                chatInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendBtn.click();
+                    }
+                });
+            }
+        }
+        
+        // Override the original message display function to add typewriter effect
+        // This will be called by the app.js file
+        function displayAgentMessageWithTypewriter(message, element) {
+            if (window.originalDisplayAgentMessage) {
+                // Call the original function first
+                window.originalDisplayAgentMessage(message, element);
+                
+                // Then apply typewriter effect to the last message
+                const lastMessage = element.querySelector('.agent-message:last-child');
+                if (lastMessage) {
+                    typewriterEffect(lastMessage, message);
+                }
+            }
+        }
+        
+        // Store the original display function when app.js loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wait for app.js to initialize
+            setTimeout(function() {
+                if (window.displayAgentMessage) {
+                    window.originalDisplayAgentMessage = window.displayAgentMessage;
+                    window.displayAgentMessage = displayAgentMessageWithTypewriter;
+                }
+            }, 500);
         });
     </script>
     <script src="js/app.js"></script>

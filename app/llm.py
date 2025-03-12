@@ -1,8 +1,14 @@
-from typing import Dict, List, Literal, Optional, Union, Any
+from typing import Dict, List, Literal, Optional, Union, Any, Callable
 import asyncio
 import concurrent.futures
 import logging
 import time
+import os
+import re
+import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pydantic import BaseModel
 
 from openai import (
     APIError,
@@ -40,6 +46,88 @@ class RateLimitError(LLMError):
 class ServiceError(LLMError):
     """Service-side error from LLM provider"""
     pass
+
+
+# Add token budget tracking for rate limiting
+class TokenBudget:
+    """Token rate limiter to prevent rate limit errors"""
+    
+    def __init__(self, tokens_per_minute=8000, recovery_rate=133):  # 133 tokens/sec = ~8000/min
+        self.tokens_per_minute = tokens_per_minute
+        self.recovery_rate = recovery_rate  # Tokens per second that get added back
+        self.available_tokens = tokens_per_minute
+        self.last_updated = time.time()
+        self.lock = threading.Lock()
+    
+    def update_available(self):
+        """Update available tokens based on time elapsed"""
+        now = time.time()
+        elapsed = now - self.last_updated
+        self.last_updated = now
+        
+        # Add tokens based on recovery rate and time elapsed
+        with self.lock:
+            self.available_tokens = min(
+                self.tokens_per_minute,
+                self.available_tokens + (self.recovery_rate * elapsed)
+            )
+    
+    def consume(self, tokens):
+        """Consume tokens from the budget"""
+        self.update_available()
+        
+        with self.lock:
+            if tokens > self.available_tokens:
+                return False
+            
+            self.available_tokens -= tokens
+            return True
+    
+    async def wait_for_tokens(self, tokens, max_wait_time=30):
+        """Wait until enough tokens are available"""
+        start_time = time.time()
+        
+        while True:
+            self.update_available()
+            
+            with self.lock:
+                if tokens <= self.available_tokens:
+                    self.available_tokens -= tokens
+                    return True
+            
+            # Check if we've waited too long
+            if time.time() - start_time > max_wait_time:
+                logger.warning(f"Waited too long for token budget to replenish (needed {tokens}, have {self.available_tokens})")
+                return False
+            
+            # Wait a bit before checking again
+            wait_time = min(1.0, tokens / (self.recovery_rate * 2))  # Adaptive wait time
+            await asyncio.sleep(wait_time)
+
+
+# Create global token budgets for different providers
+anthropic_budget = TokenBudget(tokens_per_minute=7500)  # Setting slightly below limit for safety
+
+
+# Add a response verbosity enum
+class ResponseVerbosity(str):
+    """Controls how verbose the model responses should be"""
+    CONCISE = "concise"      # Minimal responses, just the facts
+    NORMAL = "normal"        # Standard responses with some explanation
+    DETAILED = "detailed"    # Detailed responses with full reasoning
+
+
+class LLMSettings(BaseModel):
+    """Settings for a language model"""
+    provider: str
+    model: str
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+    api_version: Optional[str] = None
+    deployment_id: Optional[str] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    verbosity: str = ResponseVerbosity.NORMAL  # Default to normal verbosity
 
 
 class LLM:
@@ -192,57 +280,38 @@ class LLM:
             logger.error(f"Error creating LLM client: {str(e)}")
             raise ServiceError(f"Failed to create {self.provider} client: {str(e)}")
 
-    async def update_config(self, model=None, api_key=None, max_tokens=None, temperature=None, base_url=None):
+    async def update_config(self, model=None, api_key=None, max_tokens=None):
         """
-        Update the LLM configuration parameters
+        Update LLM configuration parameters
         
         Args:
-            model: New model to use
-            api_key: New API key
-            max_tokens: New max tokens limit
-            temperature: New temperature
-            base_url: New base URL
-            
-        Returns:
-            self: For method chaining
+            model: Model name to use
+            api_key: API key for the model provider
+            max_tokens: Maximum tokens to generate in completions
         """
-        async with self._initialization_lock:
-            updated = False
-            
-            if model is not None and model != self.model:
-                self.model = model
-                updated = True
-                
-            if api_key is not None and api_key != self.api_key:
-                self.api_key = api_key
-                updated = True
-                
-            if max_tokens is not None and max_tokens != self.max_tokens:
-                self.max_tokens = max_tokens
-                updated = True
-                
-            if temperature is not None and temperature != self.temperature:
-                self.temperature = temperature
-                updated = True
-                
-            if base_url is not None and base_url != self.base_url:
-                self.base_url = base_url
-                updated = True
-                
-            if updated:
-                # Force client recreation
-                self.client = None
-                self.client_error = None
-                self.client_created_at = 0
-                
-                # Re-detect provider if model changed
-                if model is not None:
-                    self.provider = get_provider_from_model(self.model)
-                    
-                # Log the update
-                logger.info(f"Updated LLM configuration - provider: {self.provider}, model: {self.model}")
-                
-        return self
+        from app.config import get_provider_from_model
+        
+        # Determine model
+        model_name = model or self.settings.model
+        
+        # Determine provider
+        provider = get_provider_from_model(model_name)
+        
+        # Create new settings with updated values, preserving other settings
+        new_settings = LLMSettings(
+            provider=provider,
+            model=model_name,
+            api_key=api_key or self.settings.api_key,
+            max_tokens=max_tokens or self.settings.max_tokens,
+            api_base=self.settings.api_base,
+            api_version=self.settings.api_version,
+            deployment_id=self.settings.deployment_id,
+            temperature=self.settings.temperature,
+            verbosity=self.settings.verbosity
+        )
+        
+        # Update with the new settings
+        self.update_settings(new_settings)
 
     @staticmethod
     def format_messages(messages: List[Union[dict, Message]]) -> List[dict]:
@@ -330,7 +399,13 @@ class LLM:
             
             # Provider-specific handling
             if self.provider == "anthropic":
-                return await self._ask_anthropic(formatted_messages, stream, temp)
+                if stream:
+                    # For streaming, return the generator function
+                    generator_func = await self._ask_anthropic(formatted_messages, stream, temp)
+                    return generator_func()  # Call it here to get the generator
+                else:
+                    # For non-streaming, call the function and get the result directly
+                    return await self._ask_anthropic(formatted_messages, stream, temp)
             else:
                 # Default to OpenAI API format
                 return await self._ask_openai(formatted_messages, stream, temp)
@@ -388,73 +463,116 @@ class LLM:
             logger.error(f"Error in OpenAI request: {e}")
             raise
 
-    async def _ask_anthropic(self, messages, stream, temperature=None):
+    async def _ask_anthropic(self, messages: List[Dict[str, str]], stream: bool = False, temperature: Optional[float] = None, retry_count: int = 0) -> str:
         """
-        Send request to Anthropic API
+        Send a request to the Anthropic API with rate limiting and retry logic.
         
         Args:
-            messages: Formatted message list
+            messages: List of message dictionaries
             stream: Whether to stream the response
-            temperature: Temperature setting
+            temperature: Temperature for response generation
+            retry_count: Number of retries attempted
             
         Returns:
-            String response from the language model
+            str: The model's response or an async generator for streaming
+            
+        Raises:
+            RateLimitError: If rate limit is hit and max retries exceeded
+            AuthError: If API key is invalid
+            ServiceError: For other API errors
         """
-        if anthropic is None:
-            raise ImportError("anthropic package is not installed")
-            
         try:
-            # Convert messages to Anthropic format
-            anthropic_messages = []
-            system_msg = None
+            # Initialize Anthropic client if needed
+            if not hasattr(self, '_anthropic') or not self._anthropic:
+                await self.ensure_client()
+
+            # Format messages for Anthropic
+            system_message = ""
+            prompt_parts = []
             
-            # Extract system message
             for msg in messages:
-                if msg["role"] == "system":
-                    # Anthropic only allows one system message
-                    if system_msg:
-                        # Combine system messages
-                        system_msg += "\n" + msg["content"]
-                    else:
-                        system_msg = msg["content"]
-                else:
-                    # Convert roles to Anthropic format
-                    role = msg["role"]
-                    if role == "assistant":
-                        role = "assistant"
-                    elif role == "user":
-                        role = "user"
-                    elif role == "tool":
-                        # Anthropic doesn't have tool role - use user role
-                        role = "user"
-                        
-                    anthropic_messages.append({"role": role, "content": msg["content"]})
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                
+                if role == "system":
+                    system_message = content
+                elif role == "user":
+                    prompt_parts.append({"role": "user", "content": content})
+                elif role == "assistant":
+                    prompt_parts.append({"role": "assistant", "content": content})
+                elif role == "tool":
+                    # Format tool messages as assistant messages
+                    prompt_parts.append({"role": "assistant", "content": f"Tool usage: {content}"})
+
+            # Determine max tokens based on verbosity
+            if self.settings.verbosity == "concise":
+                max_tokens = min(self.settings.max_tokens, 1000)
+            elif self.settings.verbosity == "detailed":
+                max_tokens = self.settings.max_tokens
+            else:  # normal
+                max_tokens = min(self.settings.max_tokens, 2000)
+
+            # Wait for token budget if needed
+            if hasattr(self, '_token_budget'):
+                await self._token_budget.wait_for_tokens(max_tokens)
+
+            # Log the exact model being used to help with debugging
+            logger.info(f"Making Anthropic API call with model: {self.settings.model}")
+
+            # Create the message for Claude
+            request_params = {
+                "model": self.settings.model,  # Use the exact model from settings
+                "messages": prompt_parts,
+                "max_tokens": max_tokens,
+                "temperature": temperature if temperature is not None else self.settings.temperature,
+                "stream": stream
+            }
             
+            if system_message:
+                request_params["system"] = system_message
+
             # Make the API call
-            response = await self.client.messages.create(
-                model=self.model,
-                messages=anthropic_messages,
-                system=system_msg,
-                max_tokens=self.max_tokens,
-                temperature=temperature or self.temperature,
-                stream=stream,
-            )
-            
+            response = await self.client.messages.create(**request_params)
+
+            # Extract the response content
             if stream:
-                # Handle streaming response
-                collected_messages = []
-                async for chunk in response:
-                    content = chunk.delta.text
-                    if content:
-                        collected_messages.append(content)
-                        
-                return "".join(collected_messages)
+                # Define a streaming response handler as an async generator
+                async def response_generator():
+                    try:
+                        async for chunk in response:
+                            if chunk.content and chunk.content[0].text:
+                                yield chunk.content[0].text
+                    except Exception as e:
+                        logger.error(f"Error in streaming response: {e}")
+                        raise ServiceError(f"Streaming error: {str(e)}")
+                
+                # Return the generator itself, not the result of calling it
+                return response_generator
             else:
-                # Handle non-streaming response
+                # For non-streaming responses, return the complete text
                 return response.content[0].text
+
         except Exception as e:
-            logger.error(f"Error in Anthropic request: {e}")
-            raise
+            error_msg = str(e).lower()
+            
+            # Log the specific error to help with debugging
+            logger.error(f"Anthropic API error: {str(e)} when using model: {self.settings.model}")
+            
+            # Handle rate limits with exponential backoff
+            if "rate limit" in error_msg or "429" in error_msg:
+                if retry_count < 6:  # Max 6 retries
+                    wait_time = min(2 ** retry_count, 32)  # Cap at 32 seconds
+                    logger.warning(f"Rate limit hit, waiting {wait_time} seconds before retry {retry_count + 1}")
+                    await asyncio.sleep(wait_time)
+                    return await self._ask_anthropic(messages, stream, temperature, retry_count + 1)
+                raise RateLimitError("Rate limit exceeded after max retries")
+                
+            # Handle authentication errors
+            if "invalid" in error_msg and "api key" in error_msg:
+                raise AuthError("Invalid API key")
+                
+            # Handle other errors
+            raise ServiceError(f"Anthropic API error: {str(e)}")
 
     @retry(
         wait=wait_random_exponential(min=1, max=60),
@@ -537,7 +655,6 @@ class LLM:
                 for tool_call in message.tool_calls:
                     try:
                         # Parse function arguments
-                        import json
                         args = json.loads(tool_call.function.arguments)
                     except json.JSONDecodeError:
                         # Handle case where arguments aren't valid JSON
@@ -592,12 +709,41 @@ class LLM:
         loop = asyncio.new_event_loop()
         
         try:
+            # Check if we're dealing with a streaming response
+            is_ask_method = method.__name__ == 'ask'
+            is_streaming = is_ask_method and kwargs.get('stream', args[2] if len(args) > 2 else False)
+            
+            # If asking Anthropic and streaming, we need special handling
+            if is_ask_method and is_streaming and self.provider == "anthropic":
+                # We can't easily handle async generators in threads
+                # For Anthropic streaming in sync context, we'll just get the full response
+                # Modify args to force non-streaming
+                if len(args) > 2:
+                    args_list = list(args)
+                    args_list[2] = False  # Set stream=False
+                    args = tuple(args_list)
+                else:
+                    kwargs['stream'] = False
+            
             # Define the coroutine to run in the thread
             async def run_method():
                 # Ensure the client is created if needed
                 if method.__name__ in ['ask', 'ask_tool']:
                     await self.ensure_client()
-                return await method(*args, **kwargs)
+                    
+                result = await method(*args, **kwargs)
+                
+                # For Anthropic streaming responses in a non-streaming context
+                if is_ask_method and method.__name__ == 'ask' and self.provider == "anthropic":
+                    # If we got a generator function, we need to collect all chunks
+                    if callable(result) and not isinstance(result, str):
+                        generator = result()
+                        full_response = ""
+                        async for chunk in generator:
+                            full_response += chunk
+                        return full_response
+                
+                return result
             
             # Create a future to store the result
             future = asyncio.run_coroutine_threadsafe(
@@ -652,12 +798,48 @@ class LLM:
         Args:
             messages: List of message objects or dicts to send
             system_msgs: Optional system messages to prepend
-            stream: Whether to stream the response
+            stream: Whether to stream the response (note: streaming isn't fully supported in synchronous mode)
             temperature: Optional temperature override
             
         Returns:
             String response from the language model
         """
+        # For synchronous usage, we always set stream=False for consistency
+        # This ensures we always get a string back, not an async generator
         return self.run_in_thread(
-            self.ask, messages, system_msgs, stream, temperature
+            self.ask, messages, system_msgs, False, temperature
         )
+
+    def update_settings(self, settings: LLMSettings):
+        """
+        Update LLM settings with a new configuration
+        
+        Args:
+            settings: New LLM configuration settings
+        """
+        self.settings = settings
+        logger.info(f"Updated LLM settings: model={settings.model}, verbosity={settings.verbosity}")
+        
+    def update_config(self, model=None, api_key=None, max_tokens=None):
+        """
+        Update LLM configuration parameters
+        
+        Args:
+            model: Model name to use
+            api_key: API key for the model provider
+            max_tokens: Maximum tokens to generate in completions
+        """
+        # Create new settings with updated values, preserving other settings
+        new_settings = LLMSettings(
+            model=model or self.settings.model,
+            api_key=api_key or self.settings.api_key,
+            max_tokens=max_tokens or self.settings.max_tokens,
+            api_type=self.settings.api_type,
+            temperature=self.settings.temperature,
+            api_version=self.settings.api_version,
+            base_url=self.settings.base_url,
+            verbosity=self.settings.verbosity
+        )
+        
+        # Update with the new settings
+        self.update_settings(new_settings)

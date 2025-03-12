@@ -31,7 +31,10 @@ Available tools:
 - google_search: Search the web for information
 - browser_use: Navigate and interact with web pages
 - python_execute: Execute Python code
-- file_saver: Save files to the workspace
+- file_saver: Save files to the workspace. Use with parameters:
+  * content: (required) The content to save to the file
+  * file_path: (required) The path where the file should be saved
+  * mode: (optional) The file opening mode, 'w' for write (default) or 'a' for append
 - terminate: End the conversation
 
 Remember to think carefully about which action to take next based on the current context and task requirements.
@@ -56,7 +59,10 @@ ZH_SYSTEM_PROMPT = """你是OpenManus，一个全能的AI助手，旨在解决�
 - 对于Python代码执行，使用Python执行器
 - 对于HTML内容，使用文件保存引擎将其保存为HTML文件或使用浏览器使用工具进行渲染
 - 对于网络搜索和信息检索，使用谷歌搜索
-- 对于一般文件保存，使用文件保存引擎
+- 对于一般文件保存，使用文件保存引擎，必须使用以下参数：
+  * content: (必需) 要保存到文件的内容
+  * file_path: (必需) 文件应该保存的路径
+  * mode: (可选) 文件打开模式，'w'表示写入(默认)，'a'表示追加
 
 切勿尝试将HTML内容作为Python代码执行，因为这会导致语法错误。"""
 
@@ -64,7 +70,10 @@ ZH_NEXT_STEP_PROMPT = """您可以使用Python执行器与计算机交互，通�
 
 Python执行器：执行Python代码与计算机系统交互、数据处理、自动化任务等。仅将此工具用于有效的Python代码，而不用于HTML或其他内容类型。
 
-文件保存引擎：将文件保存在本地，例如txt、py、html等。这是保存HTML内容、JavaScript、CSS和其他非Python代码的适当工具。
+文件保存引擎：将文件保存在本地，例如txt、py、html等。这是保存HTML内容、JavaScript、CSS和其他非Python代码的适当工具。使用参数:
+  * content: (必需) 要保存的内容
+  * file_path: (必需) 文件保存路径，包括文件名和扩展名
+  * mode: (可选) 文件打开模式，'w'表示写入(默认)，'a'表示追加
 
 浏览器使用工具：打开、浏览和使用web浏览器。如果打开本地超文本标记语言文件，则必须提供该文件的绝对路径。此工具还可用于渲染HTML内容。
 

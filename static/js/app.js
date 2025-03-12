@@ -12,89 +12,90 @@ let currentTaskId = null;
 let isExecuting = false;
 let savedApiKeys = {};
 let latestScreenshot = null;
-
-// DOM elements
-const elements = {
-    executeBtn: document.getElementById('executeBtn'),
-    stopBtn: document.getElementById('stopBtn'),
-    clearBtn: document.getElementById('clearBtn'),
-    exportPdfBtn: document.getElementById('exportPdfBtn'),
-    exportOptions: document.getElementById('exportOptions'),
-    input: document.getElementById('input'),
-    conversation: document.getElementById('conversation'),
-    deployType: document.getElementById('deployType'),
-    apiKey: document.getElementById('apiKey'),
-    localModelSelect: document.getElementById('localModelSelect'),
-    cloudModelSelect: document.getElementById('cloudModelSelect'),
-    saveKeyBtn: document.getElementById('saveKeyBtn'),
-    clearKeyBtn: document.getElementById('clearKeyBtn'),
-    maxSteps: document.getElementById('maxSteps'),
-    browserViewModal: document.getElementById('browserViewModal'),
-    browserViewImage: document.getElementById('browserViewImage'),
-    browserViewUrl: document.getElementById('browserViewUrl'),
-    browserViewTitle: document.getElementById('browserViewTitle'),
-    closeBrowserViewBtn: document.getElementById('closeBrowserViewBtn')
-};
+let browserRemoteUrl = null; // URL for remote browser control
+let isLiveViewActive = false; // Track if live view is active
+let autoUpdateScreenshots = true; // Auto-update screenshots
+let screenshotInterval = null; // Interval for auto-updating screenshots
+let isFloatingBrowserVisible = false; // Track if floating browser is visible
+let elements = {}; // UI elements populated on DOM load
+let currentAgentMessage = "";
+let browserReady = false;
+let projectList = {};
+let currentProject = null;
 
 /**
  * Initialize the application
  */
 function init() {
-    // Set up event listeners
-    elements.executeBtn.addEventListener('click', executePrompt);
-    elements.stopBtn.addEventListener('click', stopExecution);
-    elements.clearBtn.addEventListener('click', clearConversation);
-    elements.exportPdfBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        
-        // Position the options dropdown
-        const rect = elements.exportPdfBtn.getBoundingClientRect();
-        elements.exportOptions.style.top = `${rect.bottom}px`;
-        elements.exportOptions.style.right = `${window.innerWidth - rect.right}px`;
-        
-        // Toggle visibility
-        elements.exportOptions.classList.toggle('hidden');
-    });
+    // Initialize UI elements
+    initializeElements();
     
-    // Set up API key persistence
-    if (elements.saveKeyBtn) {
-        elements.saveKeyBtn.addEventListener('click', saveApiKey);
-    }
-    
-    if (elements.clearKeyBtn) {
-        elements.clearKeyBtn.addEventListener('click', clearSavedApiKey);
-    }
-    
-    // Set up browser view modal
-    if (elements.closeBrowserViewBtn) {
-        elements.closeBrowserViewBtn.addEventListener('click', closeBrowserView);
-    }
-    
-    // Set up example request buttons
-    setupExampleRequests();
-    
-    // Add export options
-    addExportOptions();
+    // Setup event handlers
+    setupEventHandlers();
     
     // Load saved API keys
     loadSavedApiKeys();
     
-    // Initialize UI state
-    updateUIForExecution(false);
+    // Setup example requests
+    setupExampleRequests();
     
-    // Update API key field if we have a saved key for the selected model
-    updateApiKeyField();
+    // Initialize projects list
+    initializeProjects();
     
-    // Add change listener to cloud model select
-    if (elements.cloudModelSelect) {
-        elements.cloudModelSelect.addEventListener('change', updateApiKeyField);
-    }
+    // Focus the prompt input
+    elements.promptInput.focus();
+}
+
+/**
+ * Initialize all UI elements
+ */
+function initializeElements() {
+    console.log("Initializing UI elements...");
+    
+    // Main UI elements
+    elements.input = document.getElementById('prompt-input');
+    elements.conversation = document.getElementById('conversation');
+    elements.executeBtn = document.getElementById('execute-btn');
+    elements.stopBtn = document.getElementById('stop-btn');
+    elements.clearBtn = document.getElementById('clear-btn');
+    elements.exportPdfBtn = document.getElementById('export-pdf-btn');
+    elements.exportOptions = document.getElementById('export-options');
+    
+    // Configuration elements
+    elements.deploymentSelect = document.getElementById('deployment-select');
+    elements.localModelSelect = document.getElementById('local-model-select');
+    elements.cloudModelSelect = document.getElementById('cloud-model-select');
+    elements.cloudConfig = document.getElementById('cloudConfig');
+    elements.localModels = document.getElementById('localModels');
+    elements.apiKey = document.getElementById('api-key-input');
+    elements.saveKeyBtn = document.getElementById('save-key-btn');
+    elements.clearKeyBtn = document.getElementById('clear-key-btn');
+    elements.maxSteps = document.getElementById('max-steps');
+    elements.verbosityControl = document.getElementById('verbosity-control');
+    
+    // Browser elements
+    elements.browserViewModal = document.getElementById('browserViewModal');
+    elements.browserViewTitle = document.getElementById('browserViewTitle');
+    elements.browserViewUrl = document.getElementById('browserViewUrl');
+    elements.browserViewFrame = document.getElementById('browserViewFrame');
+    elements.closeBrowserViewBtn = document.getElementById('closeBrowserViewBtn');
+    elements.toggleLiveViewBtn = document.getElementById('toggleLiveViewBtn');
+    elements.embeddedBrowserToggle = document.getElementById('embeddedBrowserToggle');
+    elements.closeFloatingBrowserBtn = document.getElementById('closeFloatingBrowserBtn');
+    elements.expandBrowserBtn = document.getElementById('expandBrowserBtn');
+    elements.autoUpdateToggle = document.getElementById('autoUpdateToggle');
+    elements.takeBrowserScreenshotBtn = document.getElementById('takeBrowserScreenshotBtn');
+    
+    // Debug element initialization
+    console.log("UI elements initialized:", Object.keys(elements).length);
 }
 
 /**
  * Set up example request buttons
  */
 function setupExampleRequests() {
+    console.log("Setting up example request buttons...");
+    
     const exampleRequests = {
         "Japan Travel Itinerary": `I need a 7-day Japan itinerary for April 15-23 from Seattle, with a $2500-5000 budget for my fiancée and me. We love historical sites, hidden gems, and Japanese culture (kendo, tea ceremonies, Zen meditation). We want to see Nara's deer and explore cities on foot. I plan to propose during this trip and need a special location recommendation. Please provide a detailed itinerary and a simple HTML travel handbook with maps, attraction descriptions, essential Japanese phrases, and travel tips we can reference throughout our journey.`,
         
@@ -106,17 +107,27 @@ function setupExampleRequests() {
     };
     
     // Add click event listeners to all example request buttons
-    document.querySelectorAll('.example-request-btn').forEach(button => {
+    const exampleButtons = document.querySelectorAll('.example-request-btn');
+    console.log(`Found ${exampleButtons.length} example request buttons`);
+    
+    exampleButtons.forEach(button => {
+        console.log("Setting up button:", button.textContent);
         button.addEventListener('click', () => {
+            console.log("Example button clicked:", button.textContent);
             const requestType = button.textContent;
             if (exampleRequests[requestType]) {
+                console.log("Setting input value to example request");
                 elements.input.value = exampleRequests[requestType];
                 elements.input.focus();
                 // Scroll to the bottom of the textarea
                 elements.input.scrollTop = elements.input.scrollHeight;
+            } else {
+                console.log("Example request not found for:", requestType);
             }
         });
     });
+    
+    console.log("Example request buttons setup complete");
 }
 
 /**
@@ -173,7 +184,7 @@ function clearSavedApiKey() {
  * Update the API key field with the saved key for the selected model
  */
 function updateApiKeyField() {
-    if (elements.deployType.value !== 'cloud') return;
+    if (elements.deploymentSelect.value !== 'cloud') return;
     
     const model = elements.cloudModelSelect.value;
     if (savedApiKeys[model]) {
@@ -187,39 +198,69 @@ function updateApiKeyField() {
  * Execute a prompt with the configured model
  */
 async function executePrompt() {
+    console.log("Execute prompt function called");
+    
     // Prevent multiple executions
-    if (isExecuting) return;
+    if (isExecuting) {
+        console.log("Already executing, canceling request");
+        return;
+    }
     
     // Get user input
     const userPrompt = elements.input.value.trim();
+    console.log("User prompt:", userPrompt ? `${userPrompt.substring(0, 50)}...` : "Empty");
     
     // Validate input
     if (!userPrompt) {
         showSystemMessage("Please enter a request before executing.", "error");
+        console.log("Empty prompt, aborting execution");
         return;
     }
     
     // Get max steps
     const maxSteps = parseInt(elements.maxSteps.value, 10) || 30;
+    console.log("Max steps:", maxSteps);
     
     // Validate max steps
     if (maxSteps < 1 || maxSteps > 100) {
         showSystemMessage("Max steps must be between 1 and 100.", "error");
+        console.log("Invalid max steps, aborting execution");
         return;
     }
     
+    // Get verbosity setting
+    const verbosity = elements.verbosityControl ? elements.verbosityControl.value : 'normal';
+    console.log("Verbosity setting:", verbosity);
+    
     // Collect configuration parameters
-    const deployType = elements.deployType.value;
+    const deployType = elements.deploymentSelect.value;
+    console.log("Deploy type:", deployType);
+    
+    const modelName = getSelectedModel();
+    console.log("Selected model:", modelName);
+    
+    const apiKey = elements.apiKey?.value || '';
+    console.log("API key provided:", apiKey ? "Yes" : "No");
+    
     const config = {
         deploy_type: deployType,
-        model_name: getSelectedModel(),
-        api_key: elements.apiKey?.value || '',
+        model_name: modelName,
+        api_key: apiKey,
         prompt: userPrompt,
-        max_steps: maxSteps
+        max_steps: maxSteps,
+        verbosity: verbosity
     };
+    console.log("Configuration:", {
+        deploy_type: config.deploy_type,
+        model_name: config.model_name,
+        max_steps: config.max_steps,
+        verbosity: config.verbosity,
+        has_api_key: config.api_key ? "yes" : "no"
+    });
     
     if (deployType === 'cloud' && !config.api_key) {
         showSystemMessage("API key is required for cloud models.", "error");
+        console.log("Missing API key for cloud model, aborting execution");
         return;
     }
     
@@ -227,33 +268,50 @@ async function executePrompt() {
         // Set executing state
         isExecuting = true;
         updateUIForExecution(true);
+        console.log("UI updated for execution");
         
         // Add user message to conversation
         addUserMessage(userPrompt);
         
         // Start task
-        const response = await fetch('/execute', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(config)
-        });
+        console.log("Sending /execute request...");
+        console.log("Request payload:", JSON.stringify(config));
         
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to start execution');
+        try {
+            const response = await fetch('/execute', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(config)
+            });
+            
+            console.log("Execute response status:", response.status);
+            console.log("Response headers:", [...response.headers.entries()]);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error("Execute error:", errorData);
+                throw new Error(errorData.detail || 'Failed to start execution');
+            }
+            
+            const responseData = await response.json();
+            console.log("Response data:", responseData);
+            
+            const { task_id } = responseData;
+            console.log("Got task ID:", task_id);
+            currentTaskId = task_id;
+            
+            // Create typing indicator
+            const typingIndicator = createTypingIndicator();
+            elements.conversation.appendChild(typingIndicator);
+            scrollToBottom();
+            
+            // Connect to stream endpoint
+            console.log("Connecting to event stream...");
+            connectToEventStream(task_id, typingIndicator);
+        } catch (fetchError) {
+            console.error("Fetch error:", fetchError);
+            throw fetchError;
         }
-        
-        const { task_id } = await response.json();
-        currentTaskId = task_id;
-        
-        // Create typing indicator
-        const typingIndicator = createTypingIndicator();
-        elements.conversation.appendChild(typingIndicator);
-        scrollToBottom();
-        
-        // Connect to event stream
-        connectToEventStream(task_id, typingIndicator);
-        
     } catch (error) {
         console.error('Execution error:', error);
         showSystemMessage(error.message || 'An error occurred during execution', "error");
@@ -908,6 +966,21 @@ function handleBrowserScreenshot(content) {
         timestamp: content.timestamp || new Date().toISOString()
     };
     
+    // Show the browser toggle button when browser is active
+    if (elements.embeddedBrowserToggle) {
+        elements.embeddedBrowserToggle.classList.remove('hidden');
+    }
+    
+    // Show the floating browser panel automatically on first screenshot
+    if (!isFloatingBrowserVisible) {
+        showFloatingBrowserPanel();
+    }
+    
+    // Start screenshot interval if auto-update is enabled
+    if (autoUpdateScreenshots && !screenshotInterval) {
+        startScreenshotInterval();
+    }
+    
     // Fetch the actual screenshot image
     fetchBrowserScreenshot();
 }
@@ -927,11 +1000,25 @@ async function fetchBrowserScreenshot() {
         
         const data = await response.json();
         
+        // Store the browser URL for iframe use
+        browserRemoteUrl = data.url;
+        
         // Update the browser view with the screenshot data
         updateBrowserView(data);
         
-        // Add a browser message with screenshot preview
-        addBrowserScreenshotMessage(data);
+        // Update the floating browser panel
+        updateFloatingBrowserPanel(data);
+        
+        // Add a browser message with screenshot preview (only if it's a new screenshot)
+        if (!window.lastScreenshotTimestamp || window.lastScreenshotTimestamp !== data.timestamp) {
+            addBrowserScreenshotMessage(data);
+            window.lastScreenshotTimestamp = data.timestamp;
+        }
+        
+        // Update iframe src if in live view mode
+        if (isLiveViewActive && elements.browserIframe) {
+            updateLiveBrowserView();
+        }
     } catch (error) {
         console.error('Error fetching browser screenshot:', error);
     }
@@ -952,122 +1039,150 @@ function updateBrowserView(data) {
 }
 
 /**
- * Add a browser screenshot message to the conversation
+ * Update the floating browser panel with screenshot data
  */
-function addBrowserScreenshotMessage(data) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'web-browsing';
+function updateFloatingBrowserPanel(data) {
+    if (!elements.floatingBrowserImage || !elements.floatingBrowserUrl || !elements.floatingBrowserTitle) return;
     
-    // Create a thumbnail of the screenshot
-    const thumbnailSrc = `data:image/png;base64,${data.image_data}`;
+    // Set the image source
+    elements.floatingBrowserImage.src = `data:image/png;base64,${data.image_data}`;
     
-    messageDiv.innerHTML = `
-        <div class="flex items-center text-accent-green font-medium mb-1">
-            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Browser Screenshot
-        </div>
-        <div class="mb-2">
-            <a href="${data.url}" target="_blank" class="text-accent-blue hover:underline">${data.url}</a>
-        </div>
-        <div class="browser-screenshot-preview cursor-pointer" onclick="openBrowserView()">
-            <img src="${thumbnailSrc}" alt="Browser screenshot" class="max-h-48 rounded-lg border border-apple-200 hover:border-accent-blue transition">
-            <div class="mt-1 text-xs text-apple-500 text-center">Click to view full screenshot</div>
-        </div>
-    `;
-    
-    elements.conversation.appendChild(messageDiv);
-    scrollToBottom();
+    // Set the URL and title
+    elements.floatingBrowserUrl.textContent = data.url || 'Unknown URL';
+    elements.floatingBrowserTitle.textContent = data.title || 'Browser View';
 }
 
 /**
- * Open the browser view modal
+ * Show the floating browser panel
  */
-function openBrowserView() {
-    if (!elements.browserViewModal) return;
+function showFloatingBrowserPanel() {
+    if (!elements.floatingBrowserPanel) return;
     
-    elements.browserViewModal.classList.remove('hidden');
-    document.body.classList.add('overflow-hidden');
-}
-
-/**
- * Close the browser view modal
- */
-function closeBrowserView() {
-    if (!elements.browserViewModal) return;
-    
-    elements.browserViewModal.classList.add('hidden');
-    document.body.classList.remove('overflow-hidden');
-}
-
-/**
- * Add a web browsing message to the conversation
- */
-function addWebBrowsingMessage(content, url) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'web-browsing';
-    
-    // Extract URL if present
-    let formattedContent = content;
-    
-    if (url) {
-        formattedContent = content.replace(url, `<a href="${url}" target="_blank" class="text-accent-blue hover:underline">${url}</a>`);
+    // Hide the toggle button
+    if (elements.embeddedBrowserToggle) {
+        elements.embeddedBrowserToggle.classList.add('hidden');
     }
     
-    messageDiv.innerHTML = `
-        <div class="flex items-center text-accent-green font-medium mb-1">
-            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Web Browsing
-        </div>
-        <div>${formatContent(formattedContent)}</div>
-    `;
-    
-    elements.conversation.appendChild(messageDiv);
-    
-    // Initialize syntax highlighting
-    if (typeof Prism !== 'undefined') {
-        Prism.highlightAllUnder(messageDiv);
-    }
-    
-    scrollToBottom();
+    // Show the panel
+    elements.floatingBrowserPanel.classList.remove('hidden');
+    isFloatingBrowserVisible = true;
 }
 
 /**
- * Show a system message in the conversation
+ * Close the floating browser panel
  */
-function showSystemMessage(message, type = 'info') {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'py-2 px-3 rounded-lg text-center my-2 text-sm';
+function closeFloatingBrowserPanel() {
+    if (!elements.floatingBrowserPanel) return;
     
-    // Set color based on message type
-    switch (type) {
-        case 'error':
-            messageDiv.classList.add('bg-red-50', 'text-accent-red');
-            break;
-        case 'success':
-            messageDiv.classList.add('bg-green-50', 'text-accent-green');
-            break;
-        case 'warning':
-            messageDiv.classList.add('bg-yellow-50', 'text-accent-yellow');
-            break;
-        default:
-            messageDiv.classList.add('bg-apple-50', 'text-apple-500');
+    // Hide the panel
+    elements.floatingBrowserPanel.classList.add('hidden');
+    isFloatingBrowserVisible = false;
+    
+    // Show the toggle button
+    if (elements.embeddedBrowserToggle) {
+        elements.embeddedBrowserToggle.classList.remove('hidden');
     }
     
-    messageDiv.textContent = message;
-    elements.conversation.appendChild(messageDiv);
-    scrollToBottom();
+    // Stop screenshot interval
+    stopScreenshotInterval();
+}
+
+/**
+ * Toggle the floating browser panel
+ */
+function toggleFloatingBrowserPanel() {
+    if (isFloatingBrowserVisible) {
+        closeFloatingBrowserPanel();
+    } else {
+        showFloatingBrowserPanel();
+    }
+}
+
+/**
+ * Expand the floating browser panel to the full modal
+ */
+function expandToBrowserModal() {
+    // Hide the floating panel
+    closeFloatingBrowserPanel();
+    
+    // Show the full modal
+    openBrowserView();
+}
+
+/**
+ * Start the screenshot interval for auto-updating
+ */
+function startScreenshotInterval() {
+    if (screenshotInterval) {
+        clearInterval(screenshotInterval);
+    }
+    
+    // Update screenshots every 3 seconds
+    screenshotInterval = setInterval(fetchBrowserScreenshot, 3000);
+}
+
+/**
+ * Stop the screenshot interval
+ */
+function stopScreenshotInterval() {
+    if (screenshotInterval) {
+        clearInterval(screenshotInterval);
+        screenshotInterval = null;
+    }
+}
+
+/**
+ * Toggle between screenshot view and live browser view
+ */
+function toggleLiveBrowserView() {
+    if (!elements.liveBrowserView || !elements.browserViewContent) return;
+    
+    isLiveViewActive = !isLiveViewActive;
+    
+    if (isLiveViewActive) {
+        // Switch to live view
+        elements.browserViewContent.classList.add('hidden');
+        elements.liveBrowserView.classList.remove('hidden');
+        elements.screenshotModeText.classList.add('hidden');
+        elements.liveModeText.classList.remove('hidden');
+        elements.toggleLiveViewBtn.textContent = 'Show Screenshot';
+        elements.toggleLiveViewBtn.classList.remove('bg-accent-green');
+        elements.toggleLiveViewBtn.classList.add('bg-accent-blue');
+        
+        // Update the iframe src
+        updateLiveBrowserView();
+    } else {
+        // Switch to screenshot view
+        elements.browserViewContent.classList.remove('hidden');
+        elements.liveBrowserView.classList.add('hidden');
+        elements.screenshotModeText.classList.remove('hidden');
+        elements.liveModeText.classList.add('hidden');
+        elements.toggleLiveViewBtn.textContent = 'Show Live View';
+        elements.toggleLiveViewBtn.classList.remove('bg-accent-blue');
+        elements.toggleLiveViewBtn.classList.add('bg-accent-green');
+    }
+}
+
+/**
+ * Update the live browser view iframe
+ */
+function updateLiveBrowserView() {
+    if (!elements.browserIframe || !browserRemoteUrl) return;
+    
+    // Set the iframe src to the current browser URL
+    // We use a proxy endpoint to avoid CORS issues
+    elements.browserIframe.src = `/browser_proxy?url=${encodeURIComponent(browserRemoteUrl)}`;
+}
+
+/**
+ * Toggle the embedded browser view (fixed position)
+ */
+function toggleEmbeddedBrowser() {
+    if (elements.browserViewModal.classList.contains('hidden')) {
+        openBrowserView();
+    } else {
+        closeBrowserView();
+    }
 }
 
 /**
@@ -1122,7 +1237,7 @@ function clearConversation() {
  * Get the selected model name based on deployment type
  */
 function getSelectedModel() {
-    if (elements.deployType.value === 'local') {
+    if (elements.deploymentSelect.value === 'local') {
         return elements.localModelSelect.value;
     }
     return elements.cloudModelSelect.value;
@@ -1156,7 +1271,7 @@ function updateUIForExecution(isRunning) {
         elements.stopBtn.classList.remove('opacity-50');
         elements.input.disabled = true;
         elements.input.classList.add('bg-apple-50');
-        elements.deployType.disabled = true;
+        elements.deploymentSelect.disabled = true;
         elements.maxSteps.disabled = true;
     } else {
         elements.executeBtn.disabled = false;
@@ -1165,7 +1280,7 @@ function updateUIForExecution(isRunning) {
         elements.stopBtn.classList.add('opacity-50');
         elements.input.disabled = false;
         elements.input.classList.remove('bg-apple-50');
-        elements.deployType.disabled = false;
+        elements.deploymentSelect.disabled = false;
         elements.maxSteps.disabled = false;
     }
 }
@@ -1176,30 +1291,102 @@ function updateUIForExecution(isRunning) {
 function formatContent(content) {
     if (!content) return '';
     
-    // Ensure content is a string
-    let stringContent;
-    if (typeof content !== 'string') {
-        try {
-            if (typeof content === 'object') {
-                stringContent = JSON.stringify(content);
-            } else {
-                stringContent = String(content);
-            }
-        } catch (e) {
-            console.error('Error converting content to string:', e);
-            stringContent = 'Error: Could not format content';
-        }
-    } else {
-        stringContent = content;
-    }
-    
     // Escape HTML
-    let escaped = stringContent
+    let escaped = content.toString()
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    
+    // Detect file format first
+    const isPythonScript = content.includes('import ') && (content.includes('def ') || content.includes('class '));
+    const isHtmlContent = content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<body>');
+    const isMarkdown = content.includes('# ') && content.includes('## ') && !content.includes('import');
+    
+    // Special handling for tool outputs that contain code
+    if (content.includes('Using pythonexecute with input:')) {
+        // Extract the code content from the pythonexecute tool
+        const codeMatch = content.match(/Using pythonexecute with input: (.*?)(?=\n\nResult:|$)/s);
+        if (codeMatch && codeMatch[1]) {
+            try {
+                const codeData = JSON.parse(codeMatch[1]);
+                if (codeData.code) {
+                    // Determine file type
+                    let language = 'python';
+                    let hasHtmlOutput = false;
+                    
+                    if (codeData.code.includes('<!DOCTYPE html>') || 
+                        codeData.code.includes('<html>') || 
+                        codeData.code.includes('<head>')) {
+                        language = 'html';
+                        hasHtmlOutput = true;
+                    } else if (codeData.code.includes('function') || codeData.code.includes('const ') || codeData.code.includes('let ')) {
+                        language = 'javascript';
+                    } else if (codeData.code.includes('import React') || codeData.code.includes('from "react"')) {
+                        language = 'jsx';
+                    } else if (codeData.code.includes('public class') || codeData.code.includes('private class')) {
+                        language = 'java';
+                    } else if (codeData.code.includes('#include')) {
+                        language = 'cpp';
+                    }
+                    
+                    // Create a formatted display for the code
+                    const formattedCode = `<div class="code-execution-result">
+                        <div class="flex items-center mb-2">
+                            <div class="text-accent-blue font-medium">Generated ${language.toUpperCase()} Code:</div>
+                            <button class="ml-auto px-2 py-1 text-xs bg-apple-100 hover:bg-apple-200 rounded-md flex items-center copy-code-btn">
+                                <svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8.342a2 2 0 0 0-.602-1.43l-4.31-4.31A2 2 0 0 0 13.658 2H10a2 2 0 0 0-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M16 18v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                Copy
+                            </button>
+                        </div>
+                        <div class="code-container overflow-auto max-h-96 mb-4 border border-apple-200 rounded-lg">
+                            <pre><code class="language-${language}">${codeData.code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+                        </div>
+                        ${hasHtmlOutput ? `
+                        <div class="mb-2 text-accent-green font-medium">Preview:</div>
+                        <div class="html-preview border border-apple-200 p-4 rounded-lg bg-white">
+                            ${codeData.code}
+                        </div>` : ''}
+                    </div>`;
+                    
+                    // Extract and add execution result if present
+                    const resultMatch = content.match(/Result:([\s\S]*?)$/);
+                    if (resultMatch) {
+                        return formattedCode + '<div class="mt-4 pt-4 border-t border-apple-200"><div class="text-accent-green font-medium">Execution Result:</div>' + resultMatch[1] + '</div>';
+                    } else {
+                        return formattedCode;
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing code data:', e);
+            }
+        }
+    }
+    
+    // Format code blocks with language tags
+    escaped = escaped.replace(/```(\w+)?\n([\s\S]*?)```/g, function(match, language, code) {
+        const lang = language || detectLanguage(code) || 'plaintext';
+        return `<div class="code-block-container">
+            <div class="flex items-center px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-t-lg">
+                <span>${lang.toUpperCase()}</span>
+                <button class="ml-auto px-2 py-0.5 bg-apple-100 hover:bg-apple-200 rounded-md flex items-center copy-code-btn">
+                    <svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8.342a2 2 0 0 0-.602-1.43l-4.31-4.31A2 2 0 0 0 13.658 2H10a2 2 0 0 0-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M16 18v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Copy
+                </button>
+            </div>
+            <pre class="m-0"><code class="language-${lang}">${code}</code></pre>
+        </div>`;
+    });
+    
+    // Format inline code
+    escaped = escaped.replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1 rounded text-apple-700">$1</code>');
     
     // Convert URLs to links
     escaped = escaped.replace(
@@ -1207,56 +1394,57 @@ function formatContent(content) {
         '<a href="$1" target="_blank" class="text-accent-blue hover:underline">$1</a>'
     );
     
-    // Add syntax highlighting for code blocks with language specification
-    escaped = escaped.replace(
-        /```([a-zA-Z0-9]+)?\n([\s\S]*?)```/g,
-        function(match, language, code) {
-            const lang = language || 'text';
-            return `<pre class="bg-apple-100 p-3 rounded-lg my-2 overflow-x-auto"><code class="language-${lang}">${code}</code></pre>`;
-        }
-    );
-    
-    // Handle code blocks without language specification
-    escaped = escaped.replace(
-        /```([\s\S]*?)```/g,
-        function(match, code) {
-            return `<pre class="bg-apple-100 p-3 rounded-lg my-2 overflow-x-auto"><code class="language-text">${code}</code></pre>`;
-        }
-    );
-    
-    // Highlight inline code
-    escaped = escaped.replace(
-        /`([^`]+)`/g,
-        '<code class="bg-apple-100 px-1 rounded font-mono text-sm">$1</code>'
-    );
-    
-    // Format headers
-    escaped = escaped.replace(/^### (.*?)$/gm, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>');
-    escaped = escaped.replace(/^## (.*?)$/gm, '<h2 class="text-xl font-bold mt-5 mb-2">$1</h2>');
-    escaped = escaped.replace(/^# (.*?)$/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>');
-    
-    // Format lists
-    escaped = escaped.replace(/^\* (.*?)$/gm, '<li class="ml-4 list-disc">$1</li>');
-    escaped = escaped.replace(/^- (.*?)$/gm, '<li class="ml-4 list-disc">$1</li>');
-    escaped = escaped.replace(/^\d+\. (.*?)$/gm, '<li class="ml-4 list-decimal">$1</li>');
-    
-    // Wrap adjacent list items in ul/ol tags
-    escaped = escaped.replace(/<li class="ml-4 list-disc">(.*?)<\/li>\n<li class="ml-4 list-disc">/g, '<ul class="my-2"><li class="ml-4 list-disc">$1</li>\n<li class="ml-4 list-disc">');
-    escaped = escaped.replace(/<li class="ml-4 list-decimal">(.*?)<\/li>\n<li class="ml-4 list-decimal">/g, '<ol class="my-2"><li class="ml-4 list-decimal">$1</li>\n<li class="ml-4 list-decimal">');
-    
-    // Close list tags
-    escaped = escaped.replace(/<li class="ml-4 list-disc">(.*?)<\/li>\n(?!<li class="ml-4 list-disc">)/g, '<ul class="my-2"><li class="ml-4 list-disc">$1</li></ul>\n');
-    escaped = escaped.replace(/<li class="ml-4 list-decimal">(.*?)<\/li>\n(?!<li class="ml-4 list-decimal">)/g, '<ol class="my-2"><li class="ml-4 list-decimal">$1</li></ol>\n');
-    
-    // Format bold and italic text
-    escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    escaped = escaped.replace(/_([^_]+)_/g, '<em>$1</em>');
-    
-    // Convert newlines to <br> tags
-    escaped = escaped.replace(/\n/g, '<br>');
+    // Initialize copy functionality when the DOM is updated
+    setTimeout(() => {
+        document.querySelectorAll('.copy-code-btn').forEach(btn => {
+            if (!btn.hasListener) {
+                btn.addEventListener('click', function() {
+                    const codeBlock = this.closest('.code-block-container, .code-execution-result').querySelector('code');
+                    const code = codeBlock.textContent;
+                    
+                    navigator.clipboard.writeText(code).then(() => {
+                        const originalText = this.innerHTML;
+                        this.innerHTML = `
+                            <svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Copied!
+                        `;
+                        setTimeout(() => {
+                            this.innerHTML = originalText;
+                        }, 2000);
+                    });
+                });
+                btn.hasListener = true;
+            }
+        });
+    }, 0);
     
     return escaped;
+}
+
+/**
+ * Detect language based on code content
+ */
+function detectLanguage(code) {
+    // Simple language detection based on content
+    if (code.includes('import ') && (code.includes('def ') || code.includes('class '))) {
+        return 'python';
+    } else if (code.includes('<!DOCTYPE') || code.includes('<html') || code.includes('<body>')) {
+        return 'html';
+    } else if (code.includes('function') || code.includes('const ') || code.includes('let ')) {
+        return 'javascript';
+    } else if (code.includes('import React') || code.includes('from "react"')) {
+        return 'jsx';
+    } else if (code.includes('public class') || code.includes('private class')) {
+        return 'java';
+    } else if (code.includes('#include')) {
+        return 'cpp';
+    } else if (code.match(/^#\s+[\w\s]+/m) && code.match(/^##\s+[\w\s]+/m)) {
+        return 'markdown';
+    }
+    
+    return 'plaintext';
 }
 
 /**
@@ -1612,6 +1800,12 @@ function handleMessage(message) {
         case 'system_message':
             showSystemMessage(message.content, message.level || 'info');
             break;
+        case 'question':
+            addAgentQuestion(message.content);
+            break;
+        case 'file_display':
+            displayGeneratedFile(message.content);
+            break;
         case 'execution_complete':
             updateUIForExecution(false);
             // Display final response if provided
@@ -1629,54 +1823,314 @@ function handleMessage(message) {
 }
 
 /**
- * Handle browser view message
+ * Display a generated file in the UI
  */
-function handleBrowserView(content, url) {
-    // Update the browser view modal
-    if (elements.browserViewImage && elements.browserViewUrl) {
-        elements.browserViewImage.src = `data:image/png;base64,${content}`;
-        elements.browserViewUrl.textContent = url || 'Unknown URL';
-        elements.browserViewTitle.textContent = 'Browser View';
+function displayGeneratedFile(fileInfo) {
+    // Create the file display container
+    const fileDisplayDiv = document.createElement('div');
+    
+    // Get file type and path
+    const filePath = fileInfo.file_path || '';
+    const fileName = fileInfo.file_name || 'Unknown';
+    const mimeType = fileInfo.mime_type || 'text/plain';
+    const content = fileInfo.content || '';
+    const projectName = fileInfo.project_name || 'default';
+    
+    // Add project name as data attribute for filtering
+    fileDisplayDiv.setAttribute('data-project', projectName);
+    
+    // Add the project to our list if it's new
+    if (projectName && projectName !== 'default') {
+        const project = addProject(projectName);
+        if (project && filePath) {
+            // Add file to project's files list if not already there
+            if (!project.files.includes(filePath)) {
+                project.files.push(filePath);
+                localStorage.setItem('projectList', JSON.stringify(projectList));
+            }
+        }
     }
     
-    // Create a message with a preview
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'web-browsing';
+    // Determine file type class for styling
+    let fileTypeClass = 'file-type-generic';
+    let language = 'plaintext';
     
-    messageDiv.innerHTML = `
-        <div class="flex items-center text-accent-green font-medium mb-1">
-            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    // Determine file type and language for syntax highlighting
+    if (mimeType.startsWith('text/html')) {
+        fileTypeClass = 'file-type-html';
+        language = 'html';
+    } else if (mimeType === 'text/markdown') {
+        fileTypeClass = 'file-type-markdown';
+        language = 'markdown';
+    } else if (mimeType.startsWith('image/')) {
+        fileTypeClass = 'file-type-image';
+    } else if (mimeType === 'text/javascript' || fileName.endsWith('.js')) {
+        fileTypeClass = 'file-type-code';
+        language = 'javascript';
+    } else if (mimeType === 'text/css' || fileName.endsWith('.css')) {
+        fileTypeClass = 'file-type-code';
+        language = 'css';
+    } else if (fileName.endsWith('.py')) {
+        fileTypeClass = 'file-type-code';
+        language = 'python';
+    } else if (fileName.endsWith('.json')) {
+        fileTypeClass = 'file-type-code';
+        language = 'json';
+    } else if (fileName.endsWith('.ts') || fileName.endsWith('.tsx')) {
+        fileTypeClass = 'file-type-code';
+        language = 'typescript';
+    } else if (fileName.endsWith('.jsx')) {
+        fileTypeClass = 'file-type-code';
+        language = 'jsx';
+    } else if (fileName.endsWith('.java')) {
+        fileTypeClass = 'file-type-code';
+        language = 'java';
+    } else if (fileName.endsWith('.go')) {
+        fileTypeClass = 'file-type-code';
+        language = 'go';
+    } else if (fileName.endsWith('.php')) {
+        fileTypeClass = 'file-type-code';
+        language = 'php';
+    } else if (fileName.endsWith('.rb')) {
+        fileTypeClass = 'file-type-code';
+        language = 'ruby';
+    } else if (fileName.endsWith('.c') || fileName.endsWith('.cpp') || fileName.endsWith('.h')) {
+        fileTypeClass = 'file-type-code';
+        language = 'cpp';
+    }
+    
+    // Add classes including the file type
+    fileDisplayDiv.className = `file-display new-file ${fileTypeClass}`;
+    
+    // Create header based on file type
+    let headerIcon = '';
+    let headerTitle = '';
+    
+    if (mimeType.startsWith('text/html')) {
+        headerIcon = `
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 5H20V19H14M10 19L4 12L10 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Browser Screenshot
-        </div>
-        <div class="mb-2">
-            <span class="text-apple-700">${url || 'Current webpage'}</span>
-        </div>
-        <div class="browser-screenshot-preview cursor-pointer" onclick="openBrowserView()">
-            <img src="data:image/png;base64,${content}" alt="Browser screenshot" class="max-h-48 rounded-lg border border-apple-200 hover:border-accent-blue transition">
-            <div class="mt-1 text-xs text-apple-500 text-center">Click to view full screenshot</div>
+        `;
+        headerTitle = 'HTML Document';
+    } else if (mimeType === 'text/markdown') {
+        headerIcon = `
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 4V16C20 17.1046 19.1046 18 18 18H6C4.89543 18 4 17.1046 4 16V8C4 6.89543 4.89543 6 6 6H12L14 4H20Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+        headerTitle = 'Markdown Document';
+    } else if (mimeType.startsWith('image/')) {
+        headerIcon = `
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 20H18C19.1046 20 20 19.1046 20 18V6C20 4.89543 19.1046 4 18 4H6C4.89543 4 4 4.89543 4 6V18C4 19.1046 4.89543 20 6 20Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8.5 10C9.32843 10 10 9.32843 10 8.5C10 7.67157 9.32843 7 8.5 7C7.67157 7 7 7.67157 7 8.5C7 9.32843 7.67157 10 8.5 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M20 15L16 11L6 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+        headerTitle = 'Image';
+    } else if (fileTypeClass === 'file-type-code') {
+        headerIcon = `
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 3L6 21M18 3L16 21M3 8H21M3 16H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+        headerTitle = 'Code File';
+    } else {
+        headerIcon = `
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 3V7C14 7.55228 14.4477 8 15 8H19M14 3H7C6.44772 3 6 3.44772 6 4V20C6 20.5523 6.44772 21 7 21H17C17.5523 21 18 20.5523 18 20V7M14 3L18 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+        headerTitle = 'File';
+    }
+    
+    // File header HTML
+    const headerHtml = `
+        <div class="file-display-header">
+            <div class="file-icon">
+                ${headerIcon}
+            </div>
+            <div class="file-title">
+                <h3>${headerTitle}: ${fileName} <span class="file-status new">New</span></h3>
+                <div class="file-path">${filePath}</div>
+                ${projectName !== 'default' ? `<div class="file-project">Project: ${projectName}</div>` : ''}
+            </div>
+            <div class="file-actions">
+                <button onclick="copyToClipboard('${filePath}')" title="Copy file path">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5H6C4.89543 5 4 5.89543 4 7V19C4 20.1046 4.89543 21 6 21H16C17.1046 21 18 20.1046 18 19V17M8 5C8 6.10457 8.89543 7 10 7H12C13.1046 7 14 6.10457 14 5M8 5C8 3.89543 8.89543 3 10 3H12C13.1046 3 14 3.89543 14 5M14 5H16C17.1046 5 18 5.89543 18 7V10M20 14H10M10 14L13 11M10 14L13 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Copy Path
+                </button>
+                <button onclick="copyToClipboard(${JSON.stringify(content)})" title="Copy content">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 9H15M9 13H15M9 17H13M17 17H20C21.1046 17 22 16.1046 22 15V5C22 3.89543 21.1046 3 20 3H8C6.89543 3 6 3.89543 6 5V15C6 16.1046 6.89543 17 8 17H11M9 21H15M9 21C9 21.5523 9.44772 22 10 22H14C14.5523 22 15 21.5523 15 21M9 21C9 20.4477 9.44772 20 10 20H14C14.5523 20 15 20.4477 15 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Copy Content
+                </button>
+                <button onclick="window.open('${filePath.replace(/\\/g, '/')}', '_blank')">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 6H6C4.89543 6 4 6.89543 4 8V18C4 19.1046 4.89543 20 6 20H16C17.1046 20 18 19.1046 18 18V14M14 4H20M20 4V10M20 4L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Open
+                </button>
+                <button onclick="continueExecution()">
+                    Continue
+                </button>
+            </div>
         </div>
     `;
     
-    // Get the flex-grow spacer element
-    const spacer = document.querySelector('#conversation .flex-grow');
+    // File content preview based on file type
+    let contentHtml = '';
     
-    // Insert the message before the spacer
-    if (spacer) {
-        elements.conversation.insertBefore(messageDiv, spacer);
+    if (mimeType.startsWith('text/html')) {
+        // HTML preview with iframe
+        contentHtml = `
+            <div class="file-display-content">
+                <div class="html-preview">
+                    <iframe 
+                        sandbox="allow-scripts" 
+                        srcdoc="${content.replace(/"/g, '&quot;')}" 
+                        title="${fileName} preview"
+                    ></iframe>
+                    <div class="preview-controls">
+                        <button class="preview-control-button" onclick="resizeIframeHeight(this.closest('.html-preview').querySelector('iframe'), 500)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="7 11 12 6 17 11"></polyline>
+                                <polyline points="7 17 12 12 17 17"></polyline>
+                            </svg>
+                            Resize
+                        </button>
+                        <button class="preview-control-button" onclick="window.open('${filePath.replace(/\\/g, '/')}', '_blank')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                            </svg>
+                            Full View
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else if (mimeType === 'text/markdown') {
+        // Markdown preview 
+        contentHtml = `
+            <div class="file-display-content">
+                <div class="markdown-content p-3 bg-white border border-apple-100 rounded">
+                    <pre class="whitespace-pre-wrap">${content}</pre>
+                </div>
+            </div>
+        `;
+    } else if (mimeType.startsWith('image/')) {
+        // Image preview
+        contentHtml = `
+            <div class="file-display-content">
+                <div class="p-3 bg-white border border-apple-100 rounded">
+                    <img src="${filePath}" class="max-w-full h-auto max-h-96 mx-auto" alt="${fileName}" />
+                </div>
+            </div>
+        `;
+    } else if (fileTypeClass === 'file-type-code') {
+        // Code preview with syntax highlighting
+        contentHtml = `
+            <div class="file-display-content">
+                <div class="code-preview">
+                    <div class="code-controls">
+                        <div class="code-language">${language.toUpperCase()}</div>
+                        <div class="code-actions">
+                            <button class="code-action-button" onclick="toggleLineNumbers(this)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="9" y1="6" x2="20" y2="6"></line>
+                                    <line x1="9" y1="12" x2="20" y2="12"></line>
+                                    <line x1="9" y1="18" x2="20" y2="18"></line>
+                                    <line x1="5" y1="6" x2="5" y2="6"></line>
+                                    <line x1="5" y1="12" x2="5" y2="12"></line>
+                                    <line x1="5" y1="18" x2="5" y2="18"></line>
+                                </svg>
+                                Toggle Line Numbers
+                            </button>
+                            <button class="code-action-button" onclick="toggleWrap(this)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M3 12h18"></path>
+                                    <polyline points="3 18 5 18 21 18"></polyline>
+                                </svg>
+                                Toggle Wrap
+                            </button>
+                        </div>
+                    </div>
+                    <pre class="code-content"><code class="language-${language}">${escapeHtml(content)}</code></pre>
+                </div>
+            </div>
+        `;
     } else {
-        elements.conversation.appendChild(messageDiv);
+        // Generic file (no preview)
+        contentHtml = `
+            <div class="file-display-content">
+                <div class="p-3 bg-white border border-apple-100 rounded">
+                    <p>File type: ${mimeType}</p>
+                    <p>Saved at: ${filePath}</p>
+                </div>
+            </div>
+        `;
     }
     
+    // Combine header and content
+    fileDisplayDiv.innerHTML = headerHtml + contentHtml;
+    
+    // Add to the conversation
+    elements.conversation.appendChild(fileDisplayDiv);
+    
+    // Initialize syntax highlighting if it's a code file
+    if (fileTypeClass === 'file-type-code') {
+        if (window.Prism) {
+            Prism.highlightAllUnder(fileDisplayDiv);
+        } else {
+            console.warn('Prism.js not loaded for syntax highlighting');
+        }
+    }
+    
+    // Scroll to the file display
     scrollToBottom();
     
-    // Automatically open the browser view modal
-    openBrowserView();
+    // Update the project selector if needed
+    if (projectName && projectName !== 'default' && elements.projectSelect && 
+        !Array.from(elements.projectSelect.options).some(opt => opt.value === projectName)) {
+        updateProjectSelector();
+        // Update selection to the current project
+        elements.projectSelect.value = projectName;
+        currentProject = projectName;
+    }
+}
+
+/**
+ * Resize an iframe's height
+ */
+function resizeIframeHeight(iframe, increment) {
+    if (!iframe) return;
+    
+    const currentHeight = parseInt(iframe.style.height) || 500;
+    const newHeight = currentHeight + increment;
+    
+    // Set a minimum and maximum height
+    if (newHeight < 200) {
+        iframe.style.height = '200px';
+    } else if (newHeight > 800) {
+        iframe.style.height = '800px';
+    } else {
+        iframe.style.height = newHeight + 'px';
+    }
+}
+
+/**
+ * Continue execution after viewing a file
+ */
+function continueExecution() {
+    showSystemMessage("Continuing execution...", "info");
+    // The stream will continue naturally as it's still connected
 }
 
 /**
@@ -1906,7 +2360,8 @@ function htmlToMarkdown(html) {
  */
 function addExportOptions() {
     const exportOptionsDiv = document.createElement('div');
-    exportOptionsDiv.className = 'export-options hidden absolute right-0 mt-2 bg-white rounded-lg shadow-apple-lg border border-apple-200 z-10';
+    exportOptionsDiv.id = 'exportOptions';
+    exportOptionsDiv.className = 'export-options hidden absolute right-0 mt-2 bg-white rounded-lg shadow-apple-lg border border-apple-200 z-50';
     exportOptionsDiv.innerHTML = `
         <div class="py-1">
             <button id="exportPdfOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
@@ -1922,6 +2377,12 @@ function addExportOptions() {
                 </svg>
                 Save as Markdown
             </button>
+            <button id="exportHtmlOption" class="w-full text-left px-4 py-2 text-sm text-apple-700 hover:bg-apple-50 transition">
+                <svg class="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 3H6C4.89543 3 4 3.89543 4 5V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V5C20 3.89543 19.1046 3 18 3H14M10 3V5C10 6.10457 10.8954 7 12 7C13.1046 7 14 6.10457 14 5V3M10 3H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Save as HTML
+            </button>
         </div>
     `;
     
@@ -1931,7 +2392,447 @@ function addExportOptions() {
     // Store reference to the export options
     elements.exportOptions = exportOptionsDiv;
     
-    // Update the export PDF button to show options
+    // Update the export button to show options
+    if (elements.exportPdfBtn) {
+        elements.exportPdfBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            
+            // Position the options dropdown
+            const rect = elements.exportPdfBtn.getBoundingClientRect();
+            elements.exportOptions.style.top = `${rect.bottom + 5}px`;
+            elements.exportOptions.style.right = `${window.innerWidth - rect.right}px`;
+            
+            // Toggle visibility
+            elements.exportOptions.classList.toggle('hidden');
+        });
+    }
+    
+    // Add event listeners for export options
+    document.getElementById('exportPdfOption')?.addEventListener('click', function() {
+        elements.exportOptions.classList.add('hidden');
+        exportConversationToPdf();
+    });
+    
+    document.getElementById('exportMarkdownOption')?.addEventListener('click', function() {
+        elements.exportOptions.classList.add('hidden');
+        exportConversationToMarkdown();
+    });
+    
+    document.getElementById('exportHtmlOption')?.addEventListener('click', function() {
+        elements.exportOptions.classList.add('hidden');
+        exportConversationToHtml();
+    });
+    
+    // Close dropdown when clicking elsewhere
+    document.addEventListener('click', function(e) {
+        if (elements.exportOptions && !elements.exportOptions.contains(e.target) && e.target !== elements.exportPdfBtn) {
+            elements.exportOptions.classList.add('hidden');
+        }
+    });
+}
+
+/**
+ * Export conversation to HTML file
+ */
+function exportConversationToHtml() {
+    // Create a simplified copy of the conversation
+    const conversationClone = elements.conversation.cloneNode(true);
+    
+    // Create HTML file content
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenManus Conversation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .message-bubble {
+            position: relative;
+            border-radius: 18px;
+            padding: 12px 16px;
+            max-width: 85%;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        .user-message {
+            background-color: #0071e3;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .agent-message {
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+        .tool-usage, .tool-result, .reasoning, .web-browsing {
+            background-color: #f5f5f7;
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+        }
+        .tool-usage {
+            border-left: 3px solid #0071e3;
+        }
+        .tool-result {
+            border-left: 3px solid #34c759;
+        }
+        .reasoning {
+            border-left: 3px solid #bf5af2;
+        }
+        .web-browsing {
+            border-left: 3px solid #68cc45;
+        }
+        pre {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: monospace;
+        }
+        .browser-screenshot-preview img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>OpenManus Conversation</h1>
+    <div class="conversation-export">
+        ${conversationClone.innerHTML}
+    </div>
+    <div class="footer">
+        <p style="text-align: center; color: #888; margin-top: 40px;">
+            Generated by OpenManus on ${new Date().toLocaleString()}
+        </p>
+    </div>
+</body>
+</html>`;
+    
+    // Create a blob and trigger download
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `OpenManus_Conversation_${formatDateForFilename(new Date())}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    // Show confirmation
+    showSystemMessage("Conversation saved as HTML", "success");
+}
+
+/**
+ * Add a browser screenshot message to the conversation
+ */
+function addBrowserScreenshotMessage(data) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'web-browsing';
+    
+    // Create a thumbnail of the screenshot
+    const thumbnailSrc = `data:image/png;base64,${data.image_data}`;
+    
+    messageDiv.innerHTML = `
+        <div class="flex items-center text-accent-green font-medium mb-1">
+            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Browser Screenshot
+        </div>
+        <div class="mb-2">
+            <span class="text-apple-700">${data.url || 'Current webpage'}</span>
+        </div>
+        <div class="browser-screenshot-preview cursor-pointer" onclick="openBrowserView()">
+            <img src="data:image/png;base64,${data.image_data}" alt="Browser screenshot" class="max-h-48 rounded-lg border border-apple-200 hover:border-accent-blue transition">
+            <div class="mt-1 text-xs text-apple-500 text-center">Click to view full screenshot</div>
+        </div>
+    `;
+    
+    // Get the flex-grow spacer element
+    const spacer = document.querySelector('#conversation .flex-grow');
+    
+    // Insert the message before the spacer
+    if (spacer) {
+        elements.conversation.insertBefore(messageDiv, spacer);
+    } else {
+        elements.conversation.appendChild(messageDiv);
+    }
+    
+    scrollToBottom();
+    
+    // Automatically open the browser view modal
+    openBrowserView();
+}
+
+/**
+ * Open the browser view modal
+ */
+function openBrowserView() {
+    if (!elements.browserViewModal) return;
+    
+    elements.browserViewModal.classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+}
+
+/**
+ * Close the browser view modal
+ */
+function closeBrowserView() {
+    if (!elements.browserViewModal) return;
+    
+    elements.browserViewModal.classList.add('hidden');
+    document.body.classList.remove('overflow-hidden');
+}
+
+/**
+ * Toggle between screenshot view and live browser view
+ */
+function toggleLiveBrowserView() {
+    if (!elements.liveBrowserView || !elements.browserViewContent) return;
+    
+    isLiveViewActive = !isLiveViewActive;
+    
+    if (isLiveViewActive) {
+        // Switch to live view
+        elements.browserViewContent.classList.add('hidden');
+        elements.liveBrowserView.classList.remove('hidden');
+        elements.screenshotModeText.classList.add('hidden');
+        elements.liveModeText.classList.remove('hidden');
+        elements.toggleLiveViewBtn.textContent = 'Show Screenshot';
+        elements.toggleLiveViewBtn.classList.remove('bg-accent-green');
+        elements.toggleLiveViewBtn.classList.add('bg-accent-blue');
+        
+        // Update the iframe src
+        updateLiveBrowserView();
+    } else {
+        // Switch to screenshot view
+        elements.browserViewContent.classList.remove('hidden');
+        elements.liveBrowserView.classList.add('hidden');
+        elements.screenshotModeText.classList.remove('hidden');
+        elements.liveModeText.classList.add('hidden');
+        elements.toggleLiveViewBtn.textContent = 'Show Live View';
+        elements.toggleLiveViewBtn.classList.remove('bg-accent-blue');
+        elements.toggleLiveViewBtn.classList.add('bg-accent-green');
+    }
+}
+
+/**
+ * Update the live browser view iframe
+ */
+function updateLiveBrowserView() {
+    if (!elements.browserIframe || !browserRemoteUrl) return;
+    
+    // Set the iframe src to the current browser URL
+    // We use a proxy endpoint to avoid CORS issues
+    elements.browserIframe.src = `/browser_proxy?url=${encodeURIComponent(browserRemoteUrl)}`;
+}
+
+/**
+ * Toggle the embedded browser view (fixed position)
+ */
+function toggleEmbeddedBrowser() {
+    if (elements.browserViewModal.classList.contains('hidden')) {
+        openBrowserView();
+    } else {
+        closeBrowserView();
+    }
+}
+
+/**
+ * Trigger a browser screenshot from the server
+ */
+async function triggerBrowserScreenshot() {
+    if (!currentTaskId) return;
+    
+    try {
+        // Show loading state
+        if (elements.takeBrowserScreenshotBtn) {
+            elements.takeBrowserScreenshotBtn.textContent = 'Taking...';
+            elements.takeBrowserScreenshotBtn.disabled = true;
+        }
+        
+        // Call the trigger screenshot endpoint
+        const response = await fetch(`/trigger_screenshot/${currentTaskId}`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            console.error('Failed to trigger screenshot');
+            showSystemMessage('Failed to trigger screenshot', 'error');
+        } else {
+            // Wait a moment for the screenshot to be processed
+            setTimeout(fetchBrowserScreenshot, 1000);
+        }
+    } catch (error) {
+        console.error('Error triggering screenshot:', error);
+        showSystemMessage('Error triggering screenshot', 'error');
+    } finally {
+        // Reset button state
+        if (elements.takeBrowserScreenshotBtn) {
+            elements.takeBrowserScreenshotBtn.textContent = 'Take Screenshot';
+            elements.takeBrowserScreenshotBtn.disabled = false;
+        }
+    }
+}
+
+/**
+ * Save the verbosity preference to localStorage
+ */
+function saveVerbosityPreference() {
+    if (elements.verbosityControl) {
+        localStorage.setItem('verbosityPreference', elements.verbosityControl.value);
+        console.log(`Saved verbosity preference: ${elements.verbosityControl.value}`);
+    }
+}
+
+/**
+ * Load the verbosity preference from localStorage
+ */
+function loadVerbosityPreference() {
+    const savedVerbosity = localStorage.getItem('verbosityPreference');
+    if (savedVerbosity && elements.verbosityControl) {
+        elements.verbosityControl.value = savedVerbosity;
+        console.log(`Loaded verbosity preference: ${savedVerbosity}`);
+    }
+}
+
+// Initialize the application when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM content loaded, initializing application...");
+    
+    // Initialize UI elements
+    initializeElements();
+    
+    // Load saved preferences
+    loadSavedApiKeys();
+    loadVerbosityPreference();
+    
+    // Initialize UI
+    init();
+    
+    console.log("Application initialized successfully");
+});
+
+/**
+ * Initialize all UI elements
+ */
+function initializeElements() {
+    console.log("Initializing UI elements...");
+    
+    // Main UI elements
+    elements.input = document.getElementById('prompt-input');
+    elements.conversation = document.getElementById('conversation');
+    elements.executeBtn = document.getElementById('execute-btn');
+    elements.stopBtn = document.getElementById('stop-btn');
+    elements.clearBtn = document.getElementById('clear-btn');
+    elements.exportPdfBtn = document.getElementById('export-pdf-btn');
+    elements.exportOptions = document.getElementById('export-options');
+    
+    // Configuration elements
+    elements.deploymentSelect = document.getElementById('deployment-select');
+    elements.localModelSelect = document.getElementById('local-model-select');
+    elements.cloudModelSelect = document.getElementById('cloud-model-select');
+    elements.cloudConfig = document.getElementById('cloudConfig');
+    elements.localModels = document.getElementById('localModels');
+    elements.apiKey = document.getElementById('api-key-input');
+    elements.saveKeyBtn = document.getElementById('save-key-btn');
+    elements.clearKeyBtn = document.getElementById('clear-key-btn');
+    elements.maxSteps = document.getElementById('max-steps');
+    elements.verbosityControl = document.getElementById('verbosity-control');
+    
+    // Browser elements
+    elements.browserViewModal = document.getElementById('browserViewModal');
+    elements.browserViewTitle = document.getElementById('browserViewTitle');
+    elements.browserViewUrl = document.getElementById('browserViewUrl');
+    elements.browserViewFrame = document.getElementById('browserViewFrame');
+    elements.closeBrowserViewBtn = document.getElementById('closeBrowserViewBtn');
+    elements.toggleLiveViewBtn = document.getElementById('toggleLiveViewBtn');
+    elements.embeddedBrowserToggle = document.getElementById('embeddedBrowserToggle');
+    elements.closeFloatingBrowserBtn = document.getElementById('closeFloatingBrowserBtn');
+    elements.expandBrowserBtn = document.getElementById('expandBrowserBtn');
+    elements.autoUpdateToggle = document.getElementById('autoUpdateToggle');
+    elements.takeBrowserScreenshotBtn = document.getElementById('takeBrowserScreenshotBtn');
+    
+    // Debug element initialization
+    console.log("UI elements initialized:", Object.keys(elements).length);
+}
+
+/**
+ * Handle browser view message
+ */
+function handleBrowserView(content, url) {
+    // Update the browser view modal
+    if (elements.browserViewImage && elements.browserViewUrl) {
+        elements.browserViewImage.src = `data:image/png;base64,${content}`;
+        elements.browserViewUrl.textContent = url || 'Unknown URL';
+        elements.browserViewTitle.textContent = 'Browser View';
+    }
+    
+    // Create a message with a preview
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'web-browsing';
+    
+    messageDiv.innerHTML = `
+        <div class="flex items-center text-accent-green font-medium mb-1">
+            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 16.9706 7.02944 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3.6001 9H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3.6001 15H20.4001" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 3C10.4087 7.38695 9.6001 9.58069 9.6001 12C9.6001 14.4193 10.4087 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 3C13.5913 7.38695 14.4001 9.58069 14.4001 12C14.4001 14.4193 13.5913 16.613 12 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Browser Screenshot
+        </div>
+        <div class="mb-2">
+            <span class="text-apple-700">${url || 'Current webpage'}</span>
+        </div>
+        <div class="browser-screenshot-preview cursor-pointer" onclick="openBrowserView()">
+            <img src="data:image/png;base64,${content}" alt="Browser screenshot" class="max-h-48 rounded-lg border border-apple-200 hover:border-accent-blue transition">
+            <div class="mt-1 text-xs text-apple-500 text-center">Click to view full screenshot</div>
+        </div>
+    `;
+    
+    elements.conversation.appendChild(messageDiv);
+    scrollToBottom();
+    
+    // Automatically open the browser view modal
+    openBrowserView();
+}
+
+/**
+ * Set up all event handlers for the UI
+ */
+function setupEventHandlers() {
+    // Main action buttons
+    if (elements.executeBtn) {
+        elements.executeBtn.addEventListener('click', executePrompt);
+    }
+    
+    elements.stopBtn.addEventListener('click', stopExecution);
+    elements.clearBtn.addEventListener('click', clearConversation);
     elements.exportPdfBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         
@@ -1944,24 +2845,278 @@ function addExportOptions() {
         elements.exportOptions.classList.toggle('hidden');
     });
     
-    // Add event listeners for export options
-    document.getElementById('exportPdfOption').addEventListener('click', function() {
-        elements.exportOptions.classList.add('hidden');
-        exportConversationToPdf();
-    });
+    // Deployment type changes
+    if (elements.deploymentSelect) {
+        elements.deploymentSelect.addEventListener('change', function(e) {
+            if (elements.cloudConfig && elements.localModels) {
+                if (e.target.value === 'cloud') {
+                    elements.cloudConfig.classList.remove('hidden');
+                    elements.localModels.classList.add('hidden');
+                    // Update API key field if available
+                    updateApiKeyField();
+                } else {
+                    elements.cloudConfig.classList.add('hidden');
+                    elements.localModels.classList.remove('hidden');
+                }
+            }
+        });
+    }
     
-    document.getElementById('exportMarkdownOption').addEventListener('click', function() {
-        elements.exportOptions.classList.add('hidden');
-        exportConversationToMarkdown();
-    });
+    // API key management
+    if (elements.saveKeyBtn) {
+        elements.saveKeyBtn.addEventListener('click', saveApiKey);
+    }
     
-    // Close dropdown when clicking elsewhere
-    document.addEventListener('click', function(e) {
-        if (!elements.exportOptions.contains(e.target) && e.target !== elements.exportPdfBtn) {
-            elements.exportOptions.classList.add('hidden');
-        }
-    });
+    if (elements.clearKeyBtn) {
+        elements.clearKeyBtn.addEventListener('click', clearSavedApiKey);
+    }
+    
+    // Browser view handlers
+    if (elements.closeBrowserViewBtn) {
+        elements.closeBrowserViewBtn.addEventListener('click', closeBrowserView);
+    }
+    
+    if (elements.toggleLiveViewBtn) {
+        elements.toggleLiveViewBtn.addEventListener('click', toggleLiveBrowserView);
+    }
+    
+    if (elements.embeddedBrowserToggle) {
+        elements.embeddedBrowserToggle.addEventListener('click', toggleEmbeddedBrowser);
+    }
+    
+    // Floating browser panel handlers
+    if (elements.closeFloatingBrowserBtn) {
+        elements.closeFloatingBrowserBtn.addEventListener('click', closeFloatingBrowserPanel);
+    }
+    
+    if (elements.expandBrowserBtn) {
+        elements.expandBrowserBtn.addEventListener('click', expandToBrowserModal);
+    }
+    
+    if (elements.autoUpdateToggle) {
+        elements.autoUpdateToggle.addEventListener('change', function() {
+            autoUpdateScreenshots = this.checked;
+            if (autoUpdateScreenshots) {
+                startScreenshotInterval();
+            } else {
+                stopScreenshotInterval();
+            }
+        });
+    }
+    
+    if (elements.takeBrowserScreenshotBtn) {
+        elements.takeBrowserScreenshotBtn.addEventListener('click', triggerBrowserScreenshot);
+    }
+    
+    // Add export options
+    addExportOptions();
+    
+    // Update UI state
+    updateUIForExecution(false);
+    
+    // Cloud model changes for API key updating
+    if (elements.cloudModelSelect) {
+        elements.cloudModelSelect.addEventListener('change', updateApiKeyField);
+    }
 }
 
-// Initialize the application when the DOM is loaded
-document.addEventListener('DOMContentLoaded', init); 
+/**
+ * Function to initialize projects
+ */
+function initializeProjects() {
+    // Create projects dropdown in the header
+    const projectSelector = document.createElement('div');
+    projectSelector.id = 'project-selector';
+    projectSelector.className = 'ml-4 flex items-center';
+    projectSelector.innerHTML = `
+        <label for="project-select" class="text-sm text-apple-600 mr-2">Project:</label>
+        <select id="project-select" class="text-sm border border-apple-200 rounded-md px-2 py-1">
+            <option value="all">All Projects</option>
+        </select>
+    `;
+    
+    // Insert before the export options
+    const conversationHeader = document.querySelector('.conversation-header');
+    if (conversationHeader) {
+        conversationHeader.insertBefore(
+            projectSelector, 
+            document.querySelector('.export-options')
+        );
+    } else {
+        console.warn('Could not find conversation header to add project selector');
+    }
+    
+    // Store reference to the select element
+    elements.projectSelect = document.getElementById('project-select');
+    
+    // Add event listener for project change
+    if (elements.projectSelect) {
+        elements.projectSelect.addEventListener('change', function() {
+            const selectedProject = this.value;
+            filterFilesByProject(selectedProject);
+        });
+    }
+    
+    // Check for existing projects in local storage
+    const savedProjects = localStorage.getItem('projectList');
+    if (savedProjects) {
+        try {
+            projectList = JSON.parse(savedProjects);
+            updateProjectSelector();
+        } catch (e) {
+            console.error('Error parsing saved projects:', e);
+            projectList = {};
+        }
+    }
+}
+
+/**
+ * Add a project to the list
+ */
+function addProject(projectName, projectFiles = []) {
+    if (!projectName) return;
+    
+    if (!projectList[projectName]) {
+        projectList[projectName] = {
+            name: projectName,
+            files: projectFiles,
+            created: new Date().toISOString()
+        };
+        
+        // Save to local storage
+        localStorage.setItem('projectList', JSON.stringify(projectList));
+        
+        // Update the UI
+        updateProjectSelector();
+    }
+    
+    // Set as current project if none is selected
+    if (!currentProject) {
+        currentProject = projectName;
+        if (elements.projectSelect) {
+            elements.projectSelect.value = projectName;
+        }
+    }
+    
+    return projectList[projectName];
+}
+
+/**
+ * Update the project selector dropdown
+ */
+function updateProjectSelector() {
+    if (!elements.projectSelect) return;
+    
+    // Clear existing options except "All Projects"
+    while (elements.projectSelect.options.length > 1) {
+        elements.projectSelect.remove(1);
+    }
+    
+    // Add project options
+    for (const project in projectList) {
+        const option = document.createElement('option');
+        option.value = project;
+        option.textContent = project;
+        elements.projectSelect.appendChild(option);
+    }
+}
+
+/**
+ * Filter displayed files by project
+ */
+function filterFilesByProject(projectName) {
+    // Get all file displays
+    const fileDisplays = document.querySelectorAll('.file-display');
+    
+    if (projectName === 'all') {
+        // Show all files
+        fileDisplays.forEach(file => {
+            file.style.display = 'block';
+        });
+    } else {
+        // Show only files for the selected project
+        fileDisplays.forEach(file => {
+            const fileProject = file.getAttribute('data-project');
+            if (fileProject === projectName) {
+                file.style.display = 'block';
+            } else {
+                file.style.display = 'none';
+            }
+        });
+    }
+    
+    // Update current project
+    currentProject = projectName;
+} 
+
+/**
+ * OpenManus Frontend Application
+ * (Existing code remains unchanged above this section.)
+ */
+
+/* --- New: Typewriter Effect Function --- */
+function typewriterEffect(element, text, delay = 50) {
+  let i = 0;
+  element.innerHTML = "";
+  const interval = setInterval(() => {
+    if (i < text.length) {
+      element.innerHTML += text.charAt(i);
+      i++;
+    } else {
+      clearInterval(interval);
+    }
+  }, delay);
+}
+
+/* --- Updated: Add Agent Message with Typewriter Effect --- */
+function addAgentMessage(content) {
+  const messageDiv = document.createElement("div");
+  messageDiv.className = "message-bubble agent-message";
+  const contentSpan = document.createElement("span");
+  messageDiv.appendChild(contentSpan);
+  elements.conversation.appendChild(messageDiv);
+  typewriterEffect(contentSpan, content);
+  scrollToBottom();
+}
+
+/* --- Updated: Display Final Response with Typewriter Effect --- */
+function displayFinalResponse(content) {
+  const messageDiv = document.createElement("div");
+  messageDiv.className = "message-bubble agent-message final-response";
+  
+  const headerDiv = document.createElement("div");
+  headerDiv.className = "flex items-center text-accent-green font-medium mb-2";
+  headerDiv.innerHTML = `<svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none"
+          xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 12L11 14L15 10M12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3Z"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg> Final Response`;
+  messageDiv.appendChild(headerDiv);
+  
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "pb-2 mb-2 border-b border-apple-200";
+  messageDiv.appendChild(contentDiv);
+  
+  elements.conversation.appendChild(messageDiv);
+  typewriterEffect(contentDiv, content);
+  scrollToBottom();
+}
+
+/* --- New: Theme Toggle Initialization --- */
+document.addEventListener("DOMContentLoaded", function () {
+  // Existing initialization code…
+  if (document.getElementById("theme-toggle")) {
+    document
+      .getElementById("theme-toggle")
+      .addEventListener("click", function () {
+        document.body.classList.toggle("dark");
+      });
+  }
+  
+  // Other initialization code (e.g., executeBtn listeners) remains unchanged.
+});
+
+/**
+ * Existing functions like executePrompt, connectToEventStream, etc.
+ * remain unchanged unless further modifications are required.
+ */

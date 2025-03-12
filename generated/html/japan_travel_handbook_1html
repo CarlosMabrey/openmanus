@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japan Travel Handbook</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; }
+        h1, h2 { color: #333; }
+        .section { margin-bottom: 30px; }
+        .map { width: 100%; height: 300px; border: 1px solid #ddd; }
+        .phrase { background-color: #f4f4f4; padding: 10px; margin-bottom: 10px; }
+        .tip { background-color: #e6f7ff; padding: 10px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Japan Travel Handbook</h1>
+    
+    <div class="section">
+        <h2>Itinerary Overview</h2>
+        <ul>
+            <li>Day 1 (Apr 15): Arrive in Tokyo, evening in Shinjuku</li>
+            <li>Day 2 (Apr 16): Tokyo - Senso-ji Temple, Asakusa, tea ceremony</li>
+            <li>Day 3 (Apr 17): Day trip to Kamakura - Great Buddha, Zen meditation</li>
+            <li>Day 4 (Apr 18): Travel to Kyoto, visit Kinkaku-ji, evening in Gion</li>
+            <li>Day 5 (Apr 19): Kyoto - Arashiyama, Tenryu-ji, proposal at Kiyomizu-dera</li>
+            <li>Day 6 (Apr 20): Day trip to Nara - Todaiji Temple, deer park</li>
+            <li>Day 7 (Apr 21): Kyoto - Fushimi Inari, kendo, onsen</li>
+            <li>Day 8 (Apr 22): Return to Tokyo - Meiji Shrine, Harajuku</li>
+            <li>Day 9 (Apr 23): Depart from Tokyo</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Maps</h2>
+        <h3>Tokyo</h3>
+        <iframe class="map" src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d207446.24819130792!2d139.60078089043705!3d35.67988873926395!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x60188b857628235d%3A0xcdd8aef709a2b520!2sTokyo%2C%20Japan!5e0!3m2!1sen!2sus!4v1682523141111!5m2!1sen!2sus" allowfullscreen="" loading="lazy"></iframe>
+        
+        <h3>Kyoto</h3>
+        <iframe class="map" src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d104942.95098061424!2d135.70466074425733!3d35.01850934371742!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x6001a8d6cd3cc3f1%3A0xc0961d366bbb1d3d!2sKyoto%2C%20Kyoto%20Prefecture%2C%20Japan!5e0!3m2!1sen!2sus!4v1682523206000!5m2!1sen!2sus" allowfullscreen="" loading="lazy"></iframe>
+        
+        <h3>Nara</h3>
+        <iframe class="map" src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d52433.38842528576!2d135.7795185287707!3d34.68518489638611!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x6001a9c0b0ae2a1d%3A0x6cf8d0fad637a699!2sNara%2C%20Nara%20Prefecture%2C%20Japan!5e0!3m2!1sen!2sus!4v1682523241135!5m2!1sen!2sus" allowfullscreen="" loading="lazy"></iframe>
+    </div>
+
+    <div class="section">
+        <h2>Essential Japanese Phrases</h2>
+        <div class="phrase">Hello: Konnichiwa (こんにちは)</div>
+        <div class="phrase">Thank you: Arigatou gozaimasu (ありがとうございます)</div>
+        <div class="phrase">Excuse me: Sumimasen (すみません)</div>
+        <div class="phrase">Where is...?: ... wa doko desu ka? (〜はどこですか？)</div>
+        <div class="phrase">How much?: Ikura desu ka? (いくらですか？)</div>
+        <div class="phrase">I don't understand: Wakarimasen (わかりません)</div>
+        <div class="phrase">Can you help me?: Tetsudatte itadakemasu ka? (手伝っていただけますか？)</div>
+        <div class="phrase">Cheers!: Kanpai! (乾杯！)</div>
+    </div>
+
+    <div class="section">
+        <h2>Travel Tips</h2>
+        <div class="tip">Always carry cash, as many places don't accept credit cards.</div>
+        <div class="tip">Purchase a Japan Rail Pass before arriving in Japan for cost-effective travel.</div>
+        <div class="tip">Be respectful in temples and shrines; follow local customs and dress codes.</div>
+        <div class="tip">Try onsen (hot springs) for a relaxing and authentic Japanese experience.</div>
+        <div class="tip">Use convenience stores for quick meals, ATMs, and other services.</div>
+        <div class="tip">Learn basic chopstick etiquette before your trip.</div>
+        <div class="tip">Tipping is not customary in Japan; excellent service is the norm.</div>
+        <div class="tip">Download offline maps and translation apps for easier navigation.</div>
+    </div>
+</body>
+</html>

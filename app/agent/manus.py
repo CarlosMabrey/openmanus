@@ -3,6 +3,8 @@ import json
 import time
 import os
 import asyncio
+import re as regex_module
+from typing import Optional
 
 from app.agent.toolcall import ToolCallAgent
 from app.prompt.manus import *
@@ -39,6 +41,25 @@ class Manus(ToolCallAgent):
         )
     )
     
+    # Project tracking for file organization
+    current_project_name: Optional[str] = None
+    
+    def send_message(self, message):
+        """
+        Send a message to the client through the custom log function if available.
+        
+        Args:
+            message: Dict containing message type and content
+        """
+        log_fn = getattr(self, 'custom_log_fn', None)
+        if log_fn:
+            log_fn(message)
+        else:
+            # If no custom log function is set, log to the regular logger
+            message_type = message.get('type', 'info')
+            content = message.get('content', '')
+            logger.info(f"[{message_type}] {content[:100]}...")
+            
     def add_user_message(self, message):
         """Add a user message to the conversation"""
         self.conversation.append({
@@ -53,8 +74,8 @@ class Manus(ToolCallAgent):
             "content": message
         })
     
-    def get_next_action(self):
-        """Get the next action from the model"""
+    async def get_next_action(self):
+        """Get the next action from the model asynchronously"""
         try:
             # Prepare the prompt for the next action
             messages = self.conversation.copy()
@@ -67,6 +88,7 @@ class Manus(ToolCallAgent):
                 })
             
             # Get the response from the model
+            # Note: generate is synchronous but internally handles async operations
             response = self.llm.generate(messages)
             
             # Log the raw response for debugging
@@ -85,8 +107,7 @@ class Manus(ToolCallAgent):
                 
                 # Look for JSON-like patterns
                 json_pattern = r'(\{.*\})'
-                import re
-                json_matches = re.findall(json_pattern, response, re.DOTALL)
+                json_matches = regex_module.findall(json_pattern, response, regex_module.DOTALL)
                 
                 if json_matches:
                     # Try each match until we find valid JSON
@@ -112,7 +133,7 @@ class Manus(ToolCallAgent):
                 )
                 
                 # Try one more time with the explicit correction
-                return self.get_next_action()
+                return await self.get_next_action()
             
             # Validate the action has required fields
             if not isinstance(action, dict):
@@ -170,17 +191,34 @@ class Manus(ToolCallAgent):
                 "reasoning": fallback_reasoning
             }
 
-    async def run(self, prompt):
+    async def run(self, prompt, user_response_queue=None):
         """
         Run the agent to solve the task specified in the prompt.
         
         Args:
             prompt: The user prompt describing the task to solve
+            user_response_queue: Queue for handling user responses to agent questions
         
         Returns:
             dict: A structured response containing all steps and the final answer
         """
         try:
+            # Initialize project name for this conversation if not already set
+            if not self.current_project_name:
+                # Create a short timestamp-based project name
+                timestamp = int(time.time())
+                # Extract a topic from the prompt (first few words)
+                topic = "_".join(prompt.strip().split()[:3]).lower()
+                # Clean the topic to use only valid characters
+                topic = regex_module.sub(r'[^a-z0-9_]', '', topic)
+                # Combine timestamp and topic for the project name
+                self.current_project_name = f"{topic}_{timestamp}"
+                
+                self.send_message({
+                    'type': 'reasoning',
+                    'content': f"Initialized project: {self.current_project_name}"
+                })
+            
             # Initialize the conversation with the user prompt
             self.conversation = []
             
@@ -229,59 +267,161 @@ class Manus(ToolCallAgent):
                 # Track the step
                 step_results.append({
                     "type": "tool_usage",
-                    "content": f"Using google_search to find Japan travel information",
-                    "step": 1
+                    "content": f"Using google_search with input: {json.dumps(search_action['input'])}",
+                    "step": 1,
+                    "tool": "google_search"
                 })
+                step_summaries.append(f"Step 1: Used tool: google_search")
                 
                 # Execute the search
-                search_result = await self.available_tools.execute(
-                    name="google_search",
-                    tool_input=search_action.get("input", {})
-                )
-                
-                if log_fn:
-                    log_fn({"type": "tool_result", "content": f"Found {len(search_result)} relevant search results", "step": 1})
+                try:
+                    search_tool = self.available_tools.get_tool("google_search")
+                    search_result = await self.available_tools.execute(
+                        name="google_search",
+                        tool_input=search_action['input']
+                    )
                     
-                # Track the search result
-                step_results.append({
-                    "type": "tool_result", 
-                    "content": f"Search Results: {search_result}",
-                    "step": 1
-                })
-                
-                # Add the search result to the conversation
-                self.add_agent_message(f"I searched for Japan travel information and found these results: {search_result}")
-            
-            # Run the agent steps
-            for step in range(1, self.max_steps + 1):
-                logger.info(f"Step {step}/{self.max_steps}")
-                if log_fn:
-                    log_fn({"type": "log", "content": f"Step {step}/{self.max_steps}"})
-                
-                # Get the next action from the model
-                action = self.get_next_action()
-                
-                # Log the action for debugging
-                logger.info(f"Action: {action}")
-                if log_fn:
-                    log_fn({"type": "log", "content": f"Selected action: {action.get('action')}"})
-                    
-                # Process the action based on type
-                action_type = action.get("action")
-                
-                # Add the reasoning to steps if available
-                if "reasoning" in action and action["reasoning"]:
-                    if log_fn:
-                        log_fn({"type": "reasoning", "content": action["reasoning"], "step": step})
-                        
+                    # Add reasoning before the search
                     step_results.append({
                         "type": "reasoning",
-                        "content": action["reasoning"],
+                        "content": search_action['reasoning'],
+                        "step": 1
+                    })
+                    
+                    # Add the search result
+                    if log_fn:
+                        log_fn({"type": "tool_result", "content": f"Google search results: {str(search_result)[:200]}...", "step": 1})
+                    
+                    step_results.append({
+                        "type": "tool_result",
+                        "content": f"Google search results:\n\n{str(search_result)}",
+                        "step": 1
+                    })
+                    
+                    # Add to the conversation
+                    self.add_agent_message(f"I'll help you create a Japan travel itinerary. First, let me search for some reliable information.")
+                    self.add_user_message(f"Search results: {str(search_result)}")
+                    
+                except Exception as e:
+                    logger.error(f"Error executing initial search: {e}")
+                    if log_fn:
+                        log_fn({"type": "error", "content": f"Error executing initial search: {e}", "step": 1})
+                    
+                    step_results.append({
+                        "type": "error",
+                        "content": f"Error executing initial search: {e}",
+                        "step": 1
+                    })
+            
+            # Execute steps until we reach a terminal state or max steps
+            step = 1  # Start with step 1 (or 2 if we did the Japan search)
+            if step_results:
+                step = 2  # We already did step 1
+            
+            # Store a record of used reasoning to prevent redundancy
+            used_reasoning = set()
+            reasoning_length_threshold = max(1000, 6000 - (step * 100))  # Decrease length as step count increases
+            
+            while step <= self.max_steps:
+                # Get the next action
+                try:
+                    if log_fn:
+                        log_fn({"type": "log", "content": f"Getting action for step {step}", "step": step})
+                    
+                    # Adjust system prompt complexity based on step count to prevent LLM overload
+                    # As we get closer to max_steps, provide more concise instructions
+                    if step > self.max_steps * 0.7:  # If we're past 70% of max steps
+                        # Add a guidance message to be more efficient
+                        efficiency_prompt = f"You've used {step} steps out of {self.max_steps} max steps. Focus on completing the task efficiently with minimal reasoning."
+                        self.add_user_message(efficiency_prompt)
+                    
+                    # Get action for the step
+                    action = await self.get_next_action()
+                    
+                    if action is None:
+                        # No valid action, try to recover
+                        recovery_message = "I couldn't determine the next action. Let me try a different approach."
+                        self.add_agent_message(recovery_message)
+                        
+                        if log_fn:
+                            log_fn({"type": "warning", "content": "Failed to get next action, attempting recovery", "step": step})
+                        
+                        # Skip to next step
+                        step += 1
+                        continue
+                    
+                    # Determine the action type
+                    action_type = action.get("action", "").lower()
+                    
+                    # If we're near the step limit, focus on wrapping up
+                    if step >= self.max_steps - 2:
+                        if action_type == "use_tool" and action.get("tool") != "terminate":
+                            # Override with terminate action if we're at max steps
+                            if log_fn:
+                                log_fn({"type": "warning", "content": f"Approaching max steps ({step}/{self.max_steps}), wrapping up", "step": step})
+                                
+                            action = {
+                                "action": "final_response",
+                                "content": "I've reached the maximum number of steps allowed. Here's what I've learned so far: " + 
+                                          "\n\n".join([s for s in step_summaries if s]),
+                                "reasoning": "We've reached the maximum number of steps and need to provide a response with what we know so far."
+                            }
+                            action_type = "final_response"
+                except Exception as e:
+                    error_msg = f"Error getting next action: {str(e)}"
+                    logger.error(error_msg)
+                    
+                    if log_fn:
+                        log_fn({"type": "error", "content": error_msg, "step": step})
+                    
+                    step_results.append({
+                        "type": "error",
+                        "content": error_msg,
                         "step": step
                     })
-                    step_summaries.append(f"Step {step}: Reasoning: {action['reasoning'][:100]}...")
+                    step_summaries.append(f"Step {step}: Error: {error_msg}")
+                    
+                    # Try to recover and continue
+                    self.add_agent_message(f"I encountered an error. Let me try a different approach.")
+                    step += 1
+                    continue
                 
-                # Process based on action type
+                # Handle the action
+                if action_type == "final_response":
+                    # Agent wants to provide a final response
+                    content = action.get("content", "")
+                    reasoning = action.get("reasoning", "")
+                    
+                    # Log the final response
+                    if log_fn:
+                        if reasoning and reasoning not in used_reasoning:
+                            log_fn({"type": "reasoning", "content": reasoning, "step": step})
+                            used_reasoning.add(reasoning)
+                        log_fn({"type": "success", "content": content, "step": step})
+                    
+                    # Add to steps
+                    if reasoning and reasoning not in used_reasoning:
+                        step_results.append({
+                            "type": "reasoning",
+                            "content": reasoning,
+                            "step": step
+                        })
+                        used_reasoning.add(reasoning)
+                    
+                    step_results.append({
+                        "type": "final_response",
+                        "content": content,
+                        "step": step
+                    })
+                    step_summaries.append(f"Step {step}: Final response: {content[:100]}...")
+                    
+                    # Add to conversation
+                    self.add_agent_message(content)
+                    
+                    # Finish execution
+                    break
+                
+                # Process the action based on type
                 if action_type == "respond":
                     # This is a final response
                     content = action.get("content", "")
@@ -323,7 +463,7 @@ class Manus(ToolCallAgent):
                     self.add_agent_message(question)
                     
                     # Wait for user response
-                    user_response = await self.get_user_input(question)
+                    user_response = await self.get_user_input(question, user_response_queue)
                     
                     if log_fn:
                         log_fn({"type": "log", "content": f"User responded: {user_response[:100]}..."})
@@ -418,17 +558,16 @@ class Manus(ToolCallAgent):
                             
                             # Execute the browser tool with the determined action
                             try:
-                                tool_result = await self.available_tools.get_tool(tool_name).execute(
-                                    action=action_param, 
-                                    **tool_input
+                                tool_result = await self.available_tools.execute_tool(
+                                    tool_name,
+                                    {"action": action_param, **tool_input}
                                 )
                                 
                                 # Check if the result indicates simulation/mock mode
                                 if tool_result and isinstance(tool_result, ToolResult) and tool_result.output:
                                     if "[SIMULATED BROWSING]" in tool_result.output:
                                         # Extract the reason for simulation mode
-                                        import re
-                                        reason_match = re.search(r'simulation mode due to: (.*?)(?:\n|$)', tool_result.output)
+                                        reason_match = regex_module.search(r'simulation mode due to: (.*?)(?:\n|$)', tool_result.output)
                                         reason = reason_match.group(1) if reason_match else "browser initialization failed"
                                         
                                         # Log the simulation mode
@@ -450,11 +589,11 @@ class Manus(ToolCallAgent):
                                             url = tool_input["url"]
                                             
                                             # Extract domain for better search
-                                            domain_match = re.search(r'https?://([^/]+)', url)
+                                            domain_match = regex_module.search(r'https?://([^/]+)', url)
                                             domain = domain_match.group(1) if domain_match else ""
                                             
                                             # Create more targeted search query based on URL
-                                            path_match = re.search(r'https?://[^/]+(/.*?)(?:\?|#|$)', url)
+                                            path_match = regex_module.search(r'https?://[^/]+(/.*?)(?:\?|#|$)', url)
                                             path = path_match.group(1) if path_match else ""
                                             
                                             # Build search query based on URL components
@@ -511,8 +650,7 @@ class Manus(ToolCallAgent):
                                     # If we have a URL, do a Google search for it instead
                                     if "url" in tool_input:
                                         # Extract domain for better search
-                                        import re
-                                        domain_match = re.search(r'https?://([^/]+)', tool_input['url'])
+                                        domain_match = regex_module.search(r'https?://([^/]+)', tool_input['url'])
                                         domain = domain_match.group(1) if domain_match else ""
                                         
                                         if domain:
@@ -557,11 +695,10 @@ class Manus(ToolCallAgent):
                                 
                                 # If we have a URL, do a Google search for it instead
                                 if "url" in tool_input:
-                                    import re
                                     url = tool_input["url"]
                                     
                                     # Extract domain for better search
-                                    domain_match = re.search(r'https?://([^/]+)', url)
+                                    domain_match = regex_module.search(r'https?://([^/]+)', url)
                                     domain = domain_match.group(1) if domain_match else ""
                                     
                                     # Create search query based on URL components
@@ -703,53 +840,95 @@ class Manus(ToolCallAgent):
     def _is_asking_user_question(self, action):
         """Determine if the action is asking the user a question"""
         try:
-            # Ensure action is a dict
-            if not isinstance(action, dict):
-                logger.warning(f"Invalid action format in _is_asking_user_question: {action}")
-                return False
-            
-            # Check for explicit question indicators
-            if action.get('is_question', False):
+            # Explicit "question" action 
+            if isinstance(action, dict) and action.get('action') == 'question':
                 return True
+                
+            # Check for explicit is_question flag
+            if isinstance(action, dict) and action.get('is_question', False):
+                return True
+                
+            # Check content field if available
+            content = None
+            if isinstance(action, dict):
+                content = action.get('content')
+            elif isinstance(action, str):
+                content = action
+                
+            if not content:
+                return False
+                
+            # Check if the content looks like a question
             
-            # Check for question patterns in different fields
-            fields_to_check = [
-                action.get('reasoning', ''),
-                action.get('input', ''),
-                action.get('action', '')
+            # Check for question marks
+            has_question_mark = '?' in content
+            
+            # Check for common question patterns
+            question_phrases = [
+                "could you", "can you", "would you", "do you", "will you",
+                "what", "how", "why", "when", "where", "which", "who",
+                "please provide", "please clarify", "please specify",
+                "need to know", "tell me", "explain", "confirm",
+                "should i", "should we", "is there", "are there",
+                "like to know", "would like", "anything else",
+                "any feedback", "your thoughts", "let me know",
+                "would you prefer", "is this"
             ]
             
-            for field in fields_to_check:
-                if not isinstance(field, str):
-                    continue
+            field_lower = content.lower()
+            
+            # Strong indicators - these alone are enough to indicate a question
+            strong_indicators = [
+                "please let me know",
+                "would you like me to",
+                "is there anything else",
+                "do you want me to",
+                "let me know if",
+                "anything else you'd like",
+                "would you prefer",
+                "can i help you with anything else",
+                "is this what you were looking for"
+            ]
+            
+            # Check for strong indicators
+            if any(indicator in field_lower for indicator in strong_indicators):
+                return True
                 
-                # Check for question mark
-                if '?' in field:
-                    # Look for common question patterns
-                    question_patterns = [
-                        "could you", "can you", "would you", "do you", "will you",
-                        "what", "how", "why", "when", "where", "which", "who",
-                        "please provide", "please clarify", "please specify",
-                        "need to know", "tell me", "explain", "confirm",
-                        "should i", "should we", "is there", "are there"
-                    ]
-                    
-                    field_lower = field.lower()
-                    if any(pattern in field_lower for pattern in question_patterns):
-                        return True
-                    
-                # Even without question marks, check for explicit request patterns
-                request_patterns = [
-                    "i need your input", "please let me know",
-                    "waiting for your response", "your feedback is needed",
-                    "provide more information", "input required"
-                ]
+            # Check for combination of question mark and phrase
+            if has_question_mark and any(phrase in field_lower for phrase in question_phrases):
+                return True
                 
-                field_lower = field.lower()
-                if any(pattern in field_lower for pattern in request_patterns):
+            # Check if the final sentence ends with a question mark
+            sentences = content.split('.')
+            final_sentence = sentences[-1].strip()
+            if final_sentence.endswith('?'):
+                # Extract potential question phrases from the final sentence
+                final_lower = final_sentence.lower()
+                if any(phrase in final_lower for phrase in question_phrases):
                     return True
             
+            # Look at the final lines of the content
+            lines = content.strip().split('\n')
+            if lines:
+                last_line = lines[-1].strip().lower()
+                # Check for common question endings
+                if (last_line.endswith('?') or 
+                    "let me know" in last_line or 
+                    "please advise" in last_line or
+                    "do you want" in last_line or
+                    "would you like" in last_line):
+                    return True
+                    
+                # Check second-to-last line if it exists
+                if len(lines) > 1:
+                    second_last = lines[-2].strip().lower()
+                    if (second_last.endswith('?') or 
+                        "let me know" in second_last or 
+                        "please advise" in second_last):
+                        return True
+            
             return False
+            
         except Exception as e:
             logger.error(f"Error in _is_asking_user_question: {str(e)}")
             return False
@@ -790,11 +969,70 @@ class Manus(ToolCallAgent):
         except:
             return "Unknown URL"
 
-    def execute_tool(self, tool_name, tool_input):
+    async def take_browser_screenshot(self):
         """
-        Execute a tool with the given input
+        Manually trigger a browser screenshot
+        
+        Returns:
+            bool: True if screenshot was taken successfully, False otherwise
+        """
+        # Check if browser_use tool is available
+        browser_tool = self.available_tools.get_tool('browser_use')
+        if not browser_tool:
+            logger.error("Browser tool not available")
+            return False
+            
+        try:
+            # Execute the screenshot action
+            result = await browser_tool.execute(action="screenshot")
+            
+            # Check if screenshot was successful
+            if result and hasattr(result, 'system') and result.system:
+                # Trigger the browser event handler if registered
+                if hasattr(self, '_browser_event_handler') and self._browser_event_handler:
+                    # Get current URL and title if possible
+                    url = "Unknown URL"
+                    title = "Browser View"
+                    
+                    if hasattr(browser_tool, 'context') and browser_tool.context:
+                        try:
+                            state = await browser_tool.context.get_state()
+                            url = state.url
+                            title = state.title
+                        except:
+                            pass
+                    
+                    # Call the event handler with screenshot data
+                    self._browser_event_handler("screenshot", {
+                        "image_data": result.system,
+                        "url": url,
+                        "title": title
+                    })
+                
+                logger.info("Browser screenshot taken successfully")
+                return True
+            else:
+                logger.error("Failed to take browser screenshot")
+                return False
+        except Exception as e:
+            logger.error(f"Error taking browser screenshot: {str(e)}")
+            return False
+            
+    def register_browser_event_handler(self, handler):
+        """
+        Register a handler for browser events
+        
+        Args:
+            handler: Function to call when browser events occur
+        """
+        self._browser_event_handler = handler
+
+    async def execute_tool(self, tool_name, tool_input):
+        """
+        Execute a tool with the given input asynchronously
         
         This overrides the parent method to add special handling for HTML content
+        and file display in the UI
         """
         # Special handling for python_execute tool with HTML content
         if tool_name == 'python_execute' and isinstance(tool_input, dict) and 'code' in tool_input:
@@ -816,10 +1054,12 @@ class Manus(ToolCallAgent):
                     # For complex HTML or HTML with scripts, save to a file
                     file_name = f"generated_page_{int(time.time())}.html"
                     
-                    # Use FileSaver tool instead
-                    return self.available_tools.execute_tool('file_saver', {
-                        'file_name': file_name,
-                        'content': code
+                    # Use FileSaver tool instead with current project name
+                    return await self.available_tools.execute('file_saver', {
+                        'file_path': file_name,
+                        'content': code,
+                        'display_in_ui': True,
+                        'project_name': self.current_project_name
                     })
                 else:
                     # For simple HTML, try to render it in the browser
@@ -834,27 +1074,65 @@ class Manus(ToolCallAgent):
                         file_url = f"file:///{abs_path.replace('\\', '/')}"
                         
                         # Use browser_use tool to navigate to the file
-                        return self.available_tools.execute_tool('browser_use', {
+                        return await self.available_tools.execute('browser_use', {
                             'action': 'navigate',
                             'url': file_url
                         })
                     except Exception as e:
                         # If browser navigation fails, fall back to saving the file
                         file_name = f"generated_page_{int(time.time())}.html"
-                        return self.available_tools.execute_tool('file_saver', {
-                            'file_name': file_name,
-                            'content': code
+                        return await self.available_tools.execute('file_saver', {
+                            'file_path': file_name,
+                            'content': code,
+                            'display_in_ui': True,
+                            'project_name': self.current_project_name
                         })
         
+        # Special handling for file_saver tool to include project name
+        elif tool_name == 'file_saver':
+            # Add the current project name if not explicitly provided
+            if not tool_input.get('project_name'):
+                tool_input['project_name'] = self.current_project_name
+            
+            # Execute the tool first to get the result
+            result = await super().execute_tool(tool_name, tool_input)
+            
+            # Check if the result is a dictionary with file metadata
+            if isinstance(result, dict) and not result.get('error', False):
+                # Check if the file should be displayed in the UI
+                if result.get('display_in_ui', False):
+                    # Send a file_display message to the UI with the file info
+                    log_fn = getattr(self, 'custom_log_fn', None)
+                    if log_fn:
+                        log_fn({
+                            'type': 'file_display',
+                            'content': {
+                                'file_path': result.get('file_path', ''),
+                                'file_name': result.get('file_name', ''),
+                                'mime_type': result.get('mime_type', ''),
+                                'content': tool_input.get('content', ''),
+                                'project_name': result.get('project_name', self.current_project_name)
+                            }
+                        })
+                        
+                        # Add a pause to let the user view the file
+                        self.send_message({
+                            'type': 'reasoning',
+                            'content': f"Generated file {result.get('file_name', '')} is displayed in project {result.get('project_name', self.current_project_name)}. You can continue the conversation after reviewing it."
+                        })
+            
+            return result
+        
         # For all other tools or non-HTML content, use the parent method
-        return super().execute_tool(tool_name, tool_input)
+        return await super().execute_tool(tool_name, tool_input)
 
-    async def get_user_input(self, question):
+    async def get_user_input(self, question, user_response_queue=None):
         """
         Wait for user input in response to a question
         
         Args:
             question: The question to ask the user
+            user_response_queue: Optional queue to read user responses from
             
         Returns:
             str: The user's response
@@ -875,12 +1153,24 @@ class Manus(ToolCallAgent):
         logger.info(f"Waiting for user response to: {question}")
         
         try:
-            # Wait for user input with a timeout
-            user_response = await asyncio.wait_for(self._user_input_future, timeout=300)  # 5 minutes timeout
-            return user_response
+            if user_response_queue:
+                # Use the queue if provided
+                try:
+                    user_response = await asyncio.wait_for(user_response_queue.get(), timeout=300)  # 5 minutes timeout
+                    return user_response
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout waiting for user response in queue")
+                    return "No response received from user. I'll continue based on the information I have."
+            else:
+                # Wait for user input with a timeout
+                user_response = await asyncio.wait_for(self._user_input_future, timeout=300)  # 5 minutes timeout
+                return user_response
         except asyncio.TimeoutError:
             logger.warning("Timeout waiting for user response")
             return "No response received from user. I'll continue based on the information I have."
+        except Exception as e:
+            logger.error(f"Error waiting for user input: {str(e)}")
+            return f"Error obtaining user response: {str(e)}. I'll continue based on the information I have."
             
     def set_user_input(self, response):
         """

@@ -1,13 +1,31 @@
 # Global LLM configuration
-[llm]
-model = "gpt-4"
-base_url = "https://api.openai.com/v1"
-api_key = "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"
+[llm.default]
+model = "claude-3-5-sonnet-20240620"
+api_type = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+api_key = "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"
 max_tokens = 16384
 temperature = 0.0
 
-# Optional configuration for specific LLM models
+# Vision-specific model configuration
 [llm.vision]
-model = "gpt-4"
-base_url = "https://api.openai.com/v1"
-api_key = "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"
+model = "claude-3-5-sonnet-20240620"
+api_type = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+api_key = "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"
+
+# Anthropic provider configuration (default)
+# [llm]
+# model = "claude-3-5-sonnet-20240620"
+# api_type = "anthropic"
+# base_url = "https://api.anthropic.com/v1/models"
+# max_tokens = 4096
+# temperature = 0.7
+
+# Specific Anthropic configuration
+# [llm.anthropic]
+#   model = "claude-3-5-sonnet-20240620"
+# api_type = "anthropic"
+# base_url = "https://api.anthropic.com/v1/models"
+# max_tokens = 4096
+# temperature = 0.7

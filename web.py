@@ -30,6 +30,8 @@ from starlette.staticfiles import StaticFiles
 from app.agent.manus import Manus
 from app.logger import logger
 
+import httpx
+
 # Global state
 active_tasks = {}
 browser_screenshots = {}  # Store browser screenshots by task_id
@@ -71,6 +73,7 @@ class ExecuteRequest(BaseModel):
     api_key: Optional[str] = None
     prompt: str
     max_steps: Optional[int] = 30  # Default to 30 steps
+    verbosity: Optional[str] = "normal"  # concise, normal, or detailed
 
 class UserResponse(BaseModel):
     response: str
@@ -97,31 +100,55 @@ async def execute_request(request: ExecuteRequest):
     if not request.prompt.strip():
         raise HTTPException(400, "Prompt cannot be empty")
     
+    # Validate verbosity
+    if request.verbosity not in ["concise", "normal", "detailed"]:
+        logger.warning(f"Invalid verbosity setting '{request.verbosity}', defaulting to 'normal'")
+        request.verbosity = "normal"
+    
     # Validate max_steps
-    max_steps = request.max_steps if request.max_steps is not None else 30
-    if max_steps < 1 or max_steps > 100:
-        raise HTTPException(400, "Max steps must be between 1 and 100")
-
+    if request.max_steps is not None:
+        if request.max_steps < 1:
+            raise HTTPException(400, "max_steps must be at least 1")
+        if request.max_steps > 100:
+            raise HTTPException(400, "max_steps cannot exceed 100")
+    else:
+        # Default to 30 steps if not specified
+        request.max_steps = 30
+    
+    # Generate task ID
     task_id = str(uuid4())
-    queue = asyncio.Queue()
+    
+    # Create message queues
+    message_queue = asyncio.Queue()
     user_response_queue = asyncio.Queue()
-
-    # Create background task
-    task = asyncio.create_task(
-        run_agent_task(task_id, request.model_name, request.api_key, request.prompt, queue, max_steps, user_response_queue)
-    )
-
-    # Store task state
+    
+    # Store task data
     active_tasks[task_id] = {
-        "task": task,
-        "queue": queue,
+        "queue": message_queue,
         "user_response_queue": user_response_queue,
         "status": "running",
-        "paused": False,
-        "start_time": datetime.datetime.now().isoformat()
+        "task": None,
+        "agent": None
     }
 
-    logger.info(f"Started task {task_id} with model {request.model_name} and max_steps {max_steps}")
+    # Start task in background
+    task = asyncio.create_task(
+        run_agent_task(
+            task_id=task_id,
+            model=request.model_name,
+            api_key=request.api_key or "",
+            prompt=request.prompt,
+            queue=message_queue,
+            max_steps=request.max_steps,
+            user_response_queue=user_response_queue,
+            verbosity=request.verbosity
+        )
+    )
+    
+    active_tasks[task_id]["task"] = task
+    
+    logger.info(f"Started task {task_id} with model {request.model_name} and max_steps={request.max_steps}")
+    
     return {"task_id": task_id}
 
 
@@ -305,16 +332,42 @@ async def get_browser_screenshot(task_id: str):
     return browser_screenshots[task_id]
 
 
-async def run_agent_task(task_id: str, model: str, api_key: str, prompt: str, queue: asyncio.Queue, max_steps: int = 30, user_response_queue: asyncio.Queue = None):
+@app.post("/trigger_screenshot/{task_id}")
+async def trigger_screenshot(task_id: str):
+    """Trigger a browser screenshot for a task"""
+    if task_id not in active_tasks:
+        raise HTTPException(404, "Task not found")
+    
+    # Get the agent from the task
+    agent = active_tasks[task_id].get("agent")
+    if not agent:
+        raise HTTPException(400, "No agent available for this task")
+    
+    try:
+        # Trigger a screenshot
+        if hasattr(agent, "take_browser_screenshot"):
+            await agent.take_browser_screenshot()
+            return {"status": "success", "message": "Screenshot triggered"}
+        else:
+            raise HTTPException(400, "Agent does not support taking screenshots")
+    except Exception as e:
+        logger.error(f"Error triggering screenshot: {str(e)}")
+        raise HTTPException(500, f"Error triggering screenshot: {str(e)}")
+
+
+async def run_agent_task(task_id: str, model: str, api_key: str, prompt: str, queue: asyncio.Queue, max_steps: int = 30, user_response_queue: asyncio.Queue = None, verbosity: str = "normal"):
     """Core logic for executing an Agent task"""
     original_info = None
     try:
         # Initialize agent
         agent = Manus()
-        agent.update_llm_config(model, api_key, max_tokens=1024)  # Limit completion tokens to 1024
+        agent.update_llm_config(model, api_key, max_tokens=1024, verbosity=verbosity)  # Set verbosity and limit completion tokens
         
         # Set max steps
         agent.max_steps = max_steps
+        
+        # Store agent in task data for screenshot triggering
+        active_tasks[task_id]["agent"] = agent
         
         # Set up browser event handler
         def browser_event_handler(event_type, data):
@@ -497,3 +550,91 @@ async def stop_task(task_id: str):
             active_tasks[task_id]["status"] = "terminated"
         
         return True
+
+@app.get("/browser_proxy")
+async def browser_proxy(url: str):
+    """Proxy requests to external websites to avoid CORS issues"""
+    if not url:
+        raise HTTPException(400, "URL parameter is required")
+    
+    try:
+        # Create a client with appropriate headers
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            # Add headers to make the request look like a browser
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0",
+            }
+            
+            # Make the request
+            response = await client.get(url, headers=headers)
+            
+            # Create a response with the same content type
+            content_type = response.headers.get("content-type", "text/html")
+            
+            # If it's HTML, modify it to handle relative URLs
+            if "text/html" in content_type:
+                html_content = response.text
+                
+                # Add base tag to handle relative URLs
+                base_tag = f'<base href="{url}">'
+                html_content = html_content.replace("<head>", f"<head>{base_tag}")
+                
+                # Add sandbox to prevent scripts from running
+                sandbox_script = """
+                <script>
+                    // Disable form submissions
+                    document.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        return false;
+                    }, true);
+                    
+                    // Intercept clicks on links
+                    document.addEventListener('click', function(e) {
+                        const link = e.target.closest('a');
+                        if (link) {
+                            e.preventDefault();
+                            const href = link.getAttribute('href');
+                            if (href && !href.startsWith('javascript:')) {
+                                // Construct absolute URL
+                                const absoluteUrl = new URL(href, window.location.href).href;
+                                // Navigate through the proxy
+                                window.location.href = '/browser_proxy?url=' + encodeURIComponent(absoluteUrl);
+                            }
+                            return false;
+                        }
+                    }, true);
+                </script>
+                """
+                html_content = html_content.replace("</body>", f"{sandbox_script}</body>")
+                
+                return HTMLResponse(content=html_content, status_code=response.status_code)
+            else:
+                # For non-HTML content, just pass through
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers={"Content-Type": content_type}
+                )
+    except Exception as e:
+        logger.error(f"Error proxying browser request: {str(e)}")
+        return HTMLResponse(
+            content=f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2>Error loading page</h2>
+                    <p>Could not load {url}</p>
+                    <p>Error: {str(e)}</p>
+                </body>
+            </html>
+            """,
+            status_code=500
+        )

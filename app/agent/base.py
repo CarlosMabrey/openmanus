@@ -5,9 +5,10 @@ import asyncio
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.llm import LLM
+from app.llm import LLM, LLMSettings
 from app.logger import logger
 from app.schema import AgentState, Memory, Message
+from app.config import get_provider_from_model
 
 
 class BaseAgent(BaseModel, ABC):
@@ -46,7 +47,7 @@ class BaseAgent(BaseModel, ABC):
         arbitrary_types_allowed = True
         extra = "allow"  # Allow extra fields for flexibility in subclasses
 
-    def update_llm_config(self, model=None, api_key=None, max_tokens=None):
+    def update_llm_config(self, model=None, api_key=None, max_tokens=None, verbosity="normal"):
         """
         Update the LLM configuration settings for this agent
         
@@ -54,36 +55,33 @@ class BaseAgent(BaseModel, ABC):
             model: Model name to use (e.g., "gpt-4", "gpt-3.5-turbo")
             api_key: API key for the model provider
             max_tokens: Maximum tokens to generate in completions
+            verbosity: Control the verbosity of responses ("concise", "normal", or "detailed")
             
         Raises:
             ValueError: If the API key format is invalid
         """
-        # Validate model name if provided
-        if model and not isinstance(model, str):
-            raise ValueError(f"Model name must be a string, got {type(model)}")
-            
-        # Validate API key if provided
-        if api_key:
-            if not isinstance(api_key, str):
-                raise ValueError(f"API key must be a string, got {type(api_key)}")
-            
-            # Basic format validation for common API key formats
-            if api_key.startswith("sk-") and len(api_key) < 20:
-                # OpenAI keys are typically much longer
-                raise ValueError("API key appears to be invalid (too short)")
+        # Log the input model name for debugging
+        logger.info(f"Updating LLM config with model input: '{model}'")
         
-        # Validate max_tokens if provided
-        if max_tokens is not None:
-            if not isinstance(max_tokens, int) or max_tokens <= 0:
-                raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
+        # Determine the model to use
+        model_name = model or self.llm.settings.model
+        logger.info(f"Using model_name: '{model_name}'")
         
-        # Update the LLM configuration
-        try:
-            self.llm.update_config(model, api_key, max_tokens)
-            logger.info(f"Updated LLM config for agent {self.name} with model: {model or 'unchanged'}")
-        except Exception as e:
-            logger.error(f"Error updating LLM config: {str(e)}")
-            raise ValueError(f"Failed to update LLM configuration: {str(e)}")
+        # Determine the provider based on the model name
+        provider = get_provider_from_model(model_name)
+        logger.info(f"Determined provider: '{provider}' for model: '{model_name}'")
+        
+        # Create a new LLM config
+        new_settings = LLMSettings(
+            provider=provider,
+            model=model_name,
+            api_key=api_key or self.llm.settings.api_key,
+            max_tokens=max_tokens or self.llm.settings.max_tokens,
+            verbosity=verbosity  # Add verbosity setting
+        )
+        
+        # Update the LLM instance
+        self.llm.update_settings(new_settings)
 
     @model_validator(mode="after")
     def initialize_agent(self) -> "BaseAgent":

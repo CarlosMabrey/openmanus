@@ -72,6 +72,8 @@ class ExecuteRequest(BaseModel):
     model_name: str = Field(..., description="LLM model name to use")
     api_key: Optional[str] = Field(None, description="API key for cloud models")
     prompt: str = Field(..., description="User input prompt")
+    max_steps: Optional[int] = Field(30, description="Maximum number of reasoning steps")
+    verbosity: Optional[str] = Field("normal", description="Response verbosity: 'concise', 'normal', or 'detailed'")
     
     @validator('deploy_type')
     def validate_deploy_type(cls, v):
@@ -82,13 +84,19 @@ class ExecuteRequest(BaseModel):
     @validator('prompt')
     def validate_prompt(cls, v):
         if not v.strip():
-            raise ValueError("Prompt cannot be empty")
-        return v.strip()
+            raise ValueError("prompt cannot be empty")
+        return v
         
     @validator('api_key')
     def validate_api_key(cls, v, values):
-        if values.get('deploy_type') == 'cloud' and (not v or len(v.strip()) < 20):
-            raise ValueError("API key is required for cloud models and must be valid")
+        if values.get('deploy_type') == 'cloud' and not v:
+            raise ValueError("api_key is required for cloud models")
+        return v
+        
+    @validator('verbosity')
+    def validate_verbosity(cls, v):
+        if v not in ['concise', 'normal', 'detailed']:
+            raise ValueError("verbosity must be 'concise', 'normal', or 'detailed'")
         return v
 
 
@@ -124,7 +132,9 @@ async def execute_request(request: ExecuteRequest):
                 request.model_name, 
                 request.api_key, 
                 request.prompt, 
-                queue
+                queue,
+                request.max_steps,
+                request.verbosity
             )
         )
         
@@ -279,29 +289,49 @@ async def submit_user_response(task_id: str, request: Request):
         raise HTTPException(500, f"Error submitting response: {str(e)}")
 
 
-async def run_agent_task(task_id: str, model: str, api_key: str, prompt: str, queue: asyncio.Queue):
-    """Run the agent task and put results in the queue"""
+async def run_agent_task(task_id: str, model: str, api_key: str, prompt: str, queue: asyncio.Queue, max_steps: int = 30, verbosity: str = "normal"):
+    """Run an agent task with the given parameters"""
+    original_info = None
     try:
-        # Setup custom logging function that writes to the queue
+        # Set up logging to redirect to queue
+        original_info = logger.info
+        
         def custom_log(msg):
             # Convert different message types to a consistent format
+            original_info(msg)
+            
+            # For strings, wrap in a simple object
             if isinstance(msg, str):
-                msg_data = {"type": "log", "content": msg}
+                asyncio.create_task(queue.put({
+                    "type": "log", 
+                    "content": msg
+                }))
+            # For dictionaries, pass through with default type
             elif isinstance(msg, dict):
-                msg_data = msg
+                if "type" not in msg:
+                    msg["type"] = "log"
+                asyncio.create_task(queue.put(msg))
+            # For other types, convert to string
             else:
-                msg_data = {"type": "log", "content": str(msg)}
+                asyncio.create_task(queue.put({
+                    "type": "log",
+                    "content": str(msg)
+                }))
                 
-            # Add the message to the queue
-            asyncio.create_task(queue.put(msg_data))
+        # Override logger
+        logger.info = custom_log
         
-        # Initialize the agent with custom logging
-        agent = Manus(
-            model=model,
-            api_key=api_key,
-            custom_log_fn=custom_log,
-            max_steps=20  # Increase from default 10 to 20 steps
-        )
+        # Initialize the agent
+        agent = Manus()
+        
+        # Update LLM config
+        agent.update_llm_config(model, api_key, verbosity=verbosity)
+        
+        # Set max steps
+        agent.max_steps = max_steps
+        
+        # Log initialization
+        logger.info(f"Initializing agent with model: {model}")
         
         # Store the agent instance in the active tasks
         if task_id in active_tasks:

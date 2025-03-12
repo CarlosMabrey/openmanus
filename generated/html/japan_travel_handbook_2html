@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japan Travel Handbook</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; }
+        h1, h2 { color: #333; }
+        .section { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Japan Travel Handbook</h1>
+    
+    <div class="section">
+        <h2>Itinerary</h2>
+        <ul>
+            <li>Monday, April 15: Tokyo</li>
+            <li>Tuesday, April 16: Tokyo</li>
+            <li>Wednesday, April 17: Tokyo</li>
+            <li>Thursday, April 18: Kyoto</li>
+            <li>Friday, April 19: Kyoto</li>
+            <li>Saturday, April 20: Kyoto</li>
+            <li>Sunday, April 21: Nara</li>
+            <li>Monday, April 22: Osaka</li>
+            <li>Tuesday, April 23: Osaka</li>
+        </ul>
+    </div>
+    
+    <div class="section">
+        <h2>Essential Japanese Phrases</h2>
+        <ul>
+            <li>Hello: Konnichiwa (こんにちは)</li>
+            <li>Thank you: Arigatou gozaimasu (ありがとうございます)</li>
+            <li>Excuse me: Sumimasen (すみません)</li>
+            <li>Where is...?: ... wa doko desu ka? (〜はどこですか？)</li>
+            <li>How much?: Ikura desu ka? (いくらですか？)</li>
+        </ul>
+    </div>
+    
+    <div class="section">
+        <h2>Travel Tips</h2>
+        <ul>
+            <li>Always carry cash, as many places don't accept credit cards</li>
+            <li>Get a Japan Rail Pass for convenient and cost-effective travel</li>
+            <li>Be respectful in temples and shrines</li>
+            <li>Try onsen (hot springs) for a relaxing experience</li>
+            <li>Use convenience stores for quick meals and ATMs</li>
+        </ul>
+    </div>
+</body>
+</html>

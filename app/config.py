@@ -4,6 +4,7 @@ import tomllib
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Literal, Any
 import logging
+from enum import Enum
 
 from pydantic import BaseModel, Field, validator
 
@@ -21,6 +22,11 @@ WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 WORKSPACE_ROOT.mkdir(exist_ok=True)
 
 
+class ResponseVerbosity(str, Enum):
+    CONCISE = "concise"
+    NORMAL = "normal"
+    DETAILED = "detailed"
+
 class LLMSettings(BaseModel):
     """Settings for language model configuration"""
     model: str = "gpt-4-turbo"
@@ -30,6 +36,7 @@ class LLMSettings(BaseModel):
     api_key: str = ""
     api_version: str = ""
     base_url: str = ""
+    verbosity: ResponseVerbosity = ResponseVerbosity.NORMAL
     
     class Config:
         # Allow extra fields for provider-specific settings
@@ -117,9 +124,9 @@ class ConfigModel(BaseModel):
             base_url="https://YOUR_AZURE_ENDPOINT.openai.azure.com",
         ),
         "anthropic": LLMSettings(
-            model="claude-3-5-sonnet",
+            model="claude-3-5-sonnet-20240620",
             api_type="anthropic",
-            base_url="https://api.anthropic.com",
+            base_url="https://api.anthropic.com/v1/models",
         ),
         "google": LLMSettings(
             model="gemini-pro",
@@ -297,7 +304,7 @@ def get_base_url_for_provider(provider: str) -> str:
     """
     provider_urls = {
         "openai": "https://api.openai.com/v1",
-        "anthropic": "https://api.anthropic.com",
+        "anthropic": "https://api.anthropic.com/v1",
         "google": "https://generativelanguage.googleapis.com/v1",
         "meta": "https://llama-api.meta.com/v1"
         # Azure needs specific endpoint from user

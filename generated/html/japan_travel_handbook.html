@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japan Travel Handbook</title>
+    <style>
+        :root {
+            --primary-color: #D73C31;
+            --secondary-color: #2B2D42;
+            --accent-color: #F1C40F;
+            --bg-color: #F8F9FA;
+            --text-color: #333;
+            --border-color: #DDD;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+            position: relative;
+            overflow: hidden;
+        }
+        header::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url('https://images.unsplash.com/photo-1492571350019-22de08371fd3?auto=format&fit=crop&q=80');
+            background-size: cover;
+            background-position: center;
+            opacity: 0.3;
+            z-index: 0;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            position: relative;
+            z-index: 1;
+        }
+        nav {
+            background-color: var(--secondary-color);
+            padding: 10px 0;
+        }
+        nav ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+        nav li {
+            margin: 0 15px;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        nav a:hover {
+            color: var(--accent-color);
+        }
+        section {
+            padding: 20px;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        h2 {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: var(--secondary-color);
+            margin-top: 25px;
+        }
+        p {
+            margin-bottom: 16px;
+        }
+        .day {
+            background-color: #f9f9f9;
+            border-left: 4px solid var(--primary-color);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 5px 5px 0;
+        }
+        .day h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+        }
+        .phrase-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .phrase-table th, .phrase-table td {
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+        }
+        .phrase-table th {
+            background-color: var(--secondary-color);
+            color: white;
+            text-align: left;
+        }
+        .phrase-table tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .map-container {
+            height: 400px;
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+        .map-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .tip {
+            background-color: #fff8e1;
+            border-left: 4px solid var(--accent-color);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 5px 5px 0;
+        }
+        .tip h4 {
+            margin-top: 0;
+            color: #d35400;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-color);
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            header h1 {
+                font-size: 2rem;
+            }
+            nav ul {
+                flex-direction: column;
+                align-items: center;
+            }
+            nav li {
+                margin: 5px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Japan Travel Handbook</h1>
+        </header>
+        
+        <nav>
+            <ul>
+                <li><a href="#itinerary">Itinerary</a></li>
+                <li><a href="#phrases">Essential Phrases</a></li>
+                <li><a href="#tips">Travel Tips</a></li>
+                <li><a href="#map">Map</a></li>
+            </ul>
+        </nav>
+        
+        <section id="introduction">
+            <h2>Introduction</h2>
+            <p>Welcome to your comprehensive guide to traveling Japan! This handbook contains a carefully planned 7-day itinerary through Tokyo, Kyoto, and Osaka, essential Japanese phrases, local travel tips, and an interactive map to enhance your journey.</p>
+            <p>Japan offers a perfect blend of ancient traditions and cutting-edge modernity. From serene temples and gardens to bustling markets and high-tech districts, this journey will immerse you in the rich culture and stunning landscapes of Japan.</p>
+        </section>
+        
+        <section id="itinerary">
+            <h2>7-Day Japan Itinerary</h2>
+            
+            <div class="day">
+                <h3>Day 1: Tokyo - Arrival and Exploration</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Arrive at Narita/Haneda Airport, transfer to hotel</li>
+                    <li><strong>Afternoon:</strong> Explore Asakusa district and visit Senso-ji Temple</li>
+                    <li><strong>Evening:</strong> Tokyo Skytree for panoramic night views</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 2: Tokyo - Modern Culture</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Shibuya Crossing and Meiji Shrine</li>
+                    <li><strong>Afternoon:</strong> Harajuku and Takeshita Street</li>
+                    <li><strong>Evening:</strong> Shinjuku nightlife district</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 3: Tokyo to Kyoto</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Shinkansen (bullet train) to Kyoto</li>
+                    <li><strong>Afternoon:</strong> Explore Arashiyama Bamboo Grove</li>
+                    <li><strong>Evening:</strong> Dinner in Pontocho Alley</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 4: Kyoto - Temple Tour</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Kinkaku-ji (Golden Pavilion)</li>
+                    <li><strong>Afternoon:</strong> Fushimi Inari Shrine and its thousand torii gates</li>
+                    <li><strong>Evening:</strong> Gion District, chance to spot Geisha</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 5: Kyoto to Osaka</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Train to Osaka</li>
+                    <li><strong>Afternoon:</strong> Osaka Castle</li>
+                    <li><strong>Evening:</strong> Dotonbori street food adventure</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 6: Osaka - Food and Fun</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Kuromon Ichiba Market food tour</li>
+                    <li><strong>Afternoon:</strong> Universal Studios Japan or Osaka Aquarium</li>
+                    <li><strong>Evening:</strong> Shinsekai area for local flavors</li>
+                </ul>
+            </div>
+            
+            <div class="day">
+                <h3>Day 7: Return to Tokyo and Departure</h3>
+                <ul>
+                    <li><strong>Morning:</strong> Shinkansen back to Tokyo</li>
+                    <li><strong>Afternoon:</strong> Last-minute shopping in Akihabara</li>
+                    <li><strong>Evening:</strong> Transfer to airport for departure</li>
+                </ul>
+            </div>
+        </section>
+        
+        <section id="phrases">
+            <h2>Essential Japanese Phrases</h2>
+            <table class="phrase-table">
+                <tr>
+                    <th>English</th>
+                    <th>Japanese</th>
+                    <th>Pronunciation</th>
+                </tr>
+                <tr>
+                    <td>Hello</td>
+                    <td>こんにちは</td>
+                    <td>Kon-nichiwa</td>
+                </tr>
+                <tr>
+                    <td>Thank you</td>
+                    <td>ありがとう</td>
+                    <td>Arigato</td>
+                </tr>
+                <tr>
+                    <td>Excuse me/Sorry</td>
+                    <td>すみません</td>
+                    <td>Sumimasen</td>
+                </tr>
+                <tr>
+                    <td>Yes</td>
+                    <td>はい</td>
+                    <td>Hai</td>
+                </tr>
+                <tr>
+                    <td>No</td>
+                    <td>いいえ</td>
+                    <td>Iie</td>
+                </tr>
+                <tr>
+                    <td>Where is...?</td>
+                    <td>...はどこですか</td>
+                    <td>...wa doko desu ka</td>
+                </tr>
+                <tr>
+                    <td>How much?</td>
+                    <td>いくらですか</td>
+                    <td>Ikura desu ka</td>
+                </tr>
+                <tr>
+                    <td>I don't understand</td>
+                    <td>わかりません</td>
+                    <td>Wakarimasen</td>
+                </tr>
+                <tr>
+                    <td>Delicious!</td>
+                    <td>おいしい!</td>
+                    <td>Oishii!</td>
+                </tr>
+            </table>
+        </section>
+        
+        <section id="tips">
+            <h2>Travel Tips</h2>
+            
+            <div class="tip">
+                <h4>Transportation</h4>
+                <p>Consider purchasing a 7-day Japan Rail Pass before your trip if you plan to travel between cities. For local transportation, get a rechargeable IC card (Suica or Pasmo) which works on most public transit in major cities.</p>
+            </div>
+            
+            <div class="tip">
+                <h4>Etiquette</h4>
+                <p>Remove shoes before entering homes, traditional ryokans, and some restaurants. Bow slightly when greeting people. Avoid eating while walking in public, and don't talk loudly on phones on public transport.</p>
+            </div>
+            
+            <div class="tip">
+                <h4>Money</h4>
+                <p>Japan is still largely a cash-based society. Always carry cash with you as many smaller shops, restaurants, and attractions don't accept credit cards. ATMs that accept foreign cards can be found at 7-Eleven convenience stores.</p>
+            </div>
+            
+            <div class="tip">
+                <h4>Internet Access</h4>
+                <p>For staying connected, consider renting a pocket WiFi device at the airport or pre-ordering one for delivery to your hotel. Many cafes and convenience stores also offer free WiFi.</p>
+            </div>
+        </section>
+        
+        <section id="map">
+            <h2>Interactive Map</h2>
+            <div class="map-container">
+                <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d6642573.405623295!2d131.7896!3d36.5748!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x34674e0fd77f192f%3A0xf54275d47c665244!2sJapan!5e0!3m2!1sen!2sus!4v1642000000000!5m2!1sen!2sus" allowfullscreen="" loading="lazy"></iframe>
+            </div>
+        </section>
+        
+        <footer>
+            <p>© 2023 Japan Travel Handbook | Created by OpenManus AI</p>
+        </footer>
+    </div>
+</body>
+</html>
